@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="LWN Control">
+  <title>LWN Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="/assets/app-icon-192.png" type="image/png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1e40af">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="LWN Control">
+  <link rel="apple-touch-icon" href="/assets/app-icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/assets/app-icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/assets/app-icon-512.png">
+</head>
+    <body>
+        <div class="stage" id="loginScreen">
+
+          <!-- ===== LEFT: BRAND PANEL ===== -->
+          <div class="brand">
+            <div class="grid-bg"></div>
+
+            <div class="brand-top">
+              <!-- Logo LWN — substitua o src pelo caminho real quando tiver o arquivo -->
+              <img class="logo-img logo-light" src="./assets/LogoLWN.webp" alt="Logo Normal">
+              <img class="logo-img logo-dark" src="./assets/LogoLWNWhite.webp" alt="Logo Modo Noturno">
+            </div>
+
+            <div class="brand-mid">
+              <h1>Controle de <em>Ativos</em><br>LWN Team Análise</h1>
+              <p>Gestão estratégica de ativos técnicos: controle de ciclo de vida, rastreabilidade e conformidade<br>Do almoxarifado ao campo, com governança e precisão em tempo real.</p>
+            </div>
+
+            <div class="brand-bottom">
+              <span><b id="statInstrumentos">—</b> instrumentos</span>
+              <div class="divider"></div>
+              <span><b id="statOrdensAbertas">—</b> O.S. abertas</span>
+              <div class="divider"></div>
+              <span><b>LWN</b> Team Análise</span>
+            </div>
+          </div>
+
+          <!-- ===== RIGHT: LOGIN PANEL ===== -->
+          <div class="login">
+            <button class="theme-toggle" id="themeToggle" aria-label="Alternar tema">
+              <svg id="themeIcon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+
+            <!-- Logo + texto de marca, visíveis apenas no mobile, no espaço acima do card -->
+            <div class="mobile-logo-wrap">
+              <img class="logo-img logo-light" src="assets/LogoLWN.webp" alt="Logo Normal">
+              <img class="logo-img logo-dark" src="assets/LogoLWNWhite.webp" alt="Logo Modo Noturno">
+            </div>
+
+            <div class="mobile-brand-text">
+              <h2>Controle de <em>Ativos</em><br>LWN Team Análise</h2>
+              <p>Gestão estratégica de ativos técnicos: controle de ciclo de vida, rastreabilidade e conformidade<br>Do almoxarifado ao campo, com governança e precisão em tempo real.</p>
+            </div>
+
+            <div class="card">
+
+              <!-- ===== STEP 1: LOGIN ===== -->
+              <div class="step active" id="stepProfile">
+                  <div class="eyebrow" id="greeting">Bom dia</div>
+                  <div class="card-title">Acesse sua conta</div>
+                  <div class="card-sub">Entre com seu e-mail ou CPF e senha.</div>
+
+                  <div class="field" id="emailField">
+                      <label for="loginEmailInput">E-MAIL OU CPF</label>
+                      <div class="field-row">
+                          <input type="text" id="loginEmailInput" placeholder="email@lwnengenharia.com.br" autocomplete="username">
+                      </div>
+                  </div>
+
+                  <div class="field" id="passwordField">
+                      <label for="loginPasswordInput">SENHA</label>
+                      <div class="field-row">
+                          <input type="password" id="loginPasswordInput" placeholder="••••••••" autocomplete="current-password">
+                          <button class="eye-btn" id="eyeBtn" type="button" aria-label="Mostrar senha">
+                              <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          </button>
+                      </div>
+                  </div>
+
+                  <!-- Mantém a sessão salva neste aparelho e é o que permite
+                       continuar recebendo notificações com o site fechado. -->
+                  <label class="remember-me" for="loginRemember">
+                      <input type="checkbox" id="loginRemember">
+                      <span>Mantenha-me conectado</span>
+                  </label>
+
+                  <div class="error-msg" id="loginError">Credenciais inválidas. Tente novamente.</div>
+
+                  <button class="signin-btn" id="btnLogin">
+                      <span class="spinner" id="spinnerLogin"></span>
+                      <span id="labelLogin">Entrar</span>
+                  </button>
+
+                  <div style="text-align: center; margin-top: 20px;">
+                      <button id="btnEsqueciSenha" style="background:none; border:none; color:var(--field-label); font-size:13px; cursor:pointer; text-decoration:underline; font-family:inherit;">
+                          Esqueceu sua senha?
+                      </button>
+                  </div>
+
+                  <div class="foot-note">Acesso restrito à equipe LWN Team Análise</div>
+              </div>
+
+              <!-- ===== STEP 2A: GESTÃO DE ATIVOS (Almox + Diretor) ===== -->
+              <div class="step" id="stepGestao">
+                <button class="back-btn" id="btnBackGestao">
+                  <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                  Voltar
+                </button>
+                <div class="eyebrow">Controle de Ativos</div>
+                <div class="card-title">Qual perfil?</div>
+                <div class="card-sub">Selecione seu perfil de acesso.</div>
+
+                <div class="role-label">Perfil</div>
+                <button class="role-btn primary" id="btnAlmoxarifado">
+                  Gestão de Ativos <span class="arrow">→</span>
+                </button>
+                <div class="or-divider">ou</div>
+                <button class="role-btn primary" id="btnAlmoxarifado2">
+                  Gestão de Ativos 2 <span class="arrow">→</span>
+                </button>
+                <div class="or-divider">ou</div>
+                <button class="role-btn" id="btnDiretor">
+                  Diretor Executivo <span class="arrow">→</span>
+                </button>
+              </div>
+
+              <!-- ===== STEP 2B: LISTA DE TÉCNICOS ===== -->
+              <div class="step" id="stepTecnicoList">
+                <button class="back-btn" id="btnBackTecnico">
+                  <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                  Voltar
+                </button>
+                <div class="eyebrow">Setor Técnico</div>
+                <div class="card-title">Qual perfil?</div>
+                <div class="card-sub">Selecione seu nome para continuar.</div>
+                <div class="name-grid" id="tecnicoNameGrid"></div>
+              </div>
+
+              <!-- ===== STEP 3: SENHA ===== -->
+              <div class="step" id="stepPassword">
+                <button class="back-btn" id="btnBackPassword">
+                  <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                  Voltar
+                </button>
+                <div class="eyebrow" id="passwordEyebrow">Autenticação</div>
+                <div class="card-title" id="passwordStepTitle">Sua senha</div>
+                <div class="card-sub" id="passwordStepSub">Digite sua senha para acessar o sistema.</div>
+
+                <div class="field" id="passwordField">
+                  <label for="loginPasswordInput">SENHA</label>
+                  <div class="field-row">
+                    <input type="password" id="loginPasswordInput" placeholder="••••••••" autocomplete="current-password">
+                    <button class="eye-btn" id="eyeBtn" type="button" aria-label="Mostrar senha">
+                      <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="error-msg" id="loginPasswordError">Senha incorreta. Tente novamente.</div>
+
+                <button class="signin-btn" id="btnConfirmPassword">
+                  <span class="spinner" id="spinnerPassword"></span>
+                  <span id="labelPassword">Entrar</span>
+                </button>
+              </div>
+
+            </div><!-- /card -->
+          </div><!-- /login -->
+        </div><!-- /stage -->
+
+        <!-- App frame (ocupa toda a tela ao logar) -->
+        <div id="appFrame">
+          <iframe id="appIframe" allow="camera; microphone"></iframe>
+        </div>
+
+        <div class="toast" id="toast"></div>
+    </body>
+    <script src="/lwn-push.js" defer></script>
+    <script src="/script.js" defer></script>
+</html>

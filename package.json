@@ -1,0 +1,17 @@
+{
+  "name": "lwn-control-backend",
+  "version": "1.0.0",
+  "description": "API para LWN Control",
+  "scripts": {
+    "start": "node api/server.js",
+    "build": "echo 'Build completed'"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "web-push": "^3.6.7"
+  }
+}

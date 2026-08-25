@@ -1,0 +1,315 @@
+/* ============================================================
+   LOGS DE ATIVIDADE — LWN CONTROL
+   ============================================================ */
+.logs-wrap { padding: 0 0 2.5rem; }
+
+.logs-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+}
+
+.logs-title { font-size: 1.35rem; font-weight: 800; color: var(--text-main); }
+.logs-sub { font-size: 0.82rem; color: var(--text-dim, var(--text-muted)); margin-top: 0.15rem; }
+
+.logs-badge {
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    backdrop-filter: blur(6px);
+}
+
+.logs-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    padding: 0.85rem;
+    margin-bottom: 1.1rem;
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+    border-radius: 0.85rem;
+    background: color-mix(in srgb, var(--bg-card) 55%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.logs-select,
+.logs-input {
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.55rem;
+    background: var(--bg-surface);
+    color: var(--text-main);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.logs-input { flex: 1 1 220px; font-weight: 500; }
+
+.logs-btn {
+    padding: 0.5rem 0.95rem;
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    color: var(--primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.logs-btn:hover { background: color-mix(in srgb, var(--primary) 20%, transparent); }
+
+.logs-dia { margin-bottom: 1.1rem; }
+
+.logs-dia-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim, var(--text-muted));
+    margin-bottom: 0.5rem;
+}
+
+.logs-dia-label span {
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+    letter-spacing: 0;
+}
+
+.logs-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+    border-radius: 0.7rem;
+    background: color-mix(in srgb, var(--bg-card) 60%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: border-color 0.15s ease;
+}
+
+.logs-item:hover { border-color: color-mix(in srgb, var(--primary) 35%, transparent); }
+
+.logs-avatar {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.logs-item-main { min-width: 0; flex: 1; }
+
+.logs-item-top {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--text-main);
+}
+
+.logs-acao {
+    padding: 0.12rem 0.5rem;
+    border-radius: 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.logs-desc { color: var(--text-main); font-weight: 600; }
+
+.logs-item-meta {
+    font-size: 0.72rem;
+    color: var(--text-dim, var(--text-muted));
+    margin-top: 0.2rem;
+}
+
+.logs-empty {
+    padding: 2rem;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-dim, var(--text-muted));
+    border: 1px dashed color-mix(in srgb, var(--border-color) 80%, transparent);
+    border-radius: 0.85rem;
+}
+
+/* ---- Detalhes expansíveis (setinha) ---- */
+.logs-caret {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    transition: transform .15s ease, color .15s ease, background .15s ease;
+}
+
+.logs-caret svg { width: 13px; height: 13px; }
+.logs-caret:hover { color: var(--primary); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.logs-caret.aberto { transform: rotate(180deg); color: var(--primary); }
+
+.logs-detalhes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.5rem 0.75rem;
+    margin-top: 0.55rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--bg-surface) 55%, transparent);
+}
+
+.logs-det-campo { min-width: 0; font-size: 0.76rem; color: var(--text-main); word-break: break-word; }
+.logs-det-campo.full { grid-column: 1 / -1; }
+
+.logs-det-label {
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-dim, var(--text-muted));
+    margin-bottom: 0.1rem;
+}
+
+.logs-det-lista {
+    margin: 0.1rem 0 0;
+    padding-left: 1rem;
+    display: grid;
+    gap: 0.1rem;
+}
+
+.logs-det-lista li { font-size: 0.75rem; }
+
+@media (max-width: 640px) {
+    .logs-filtros {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.45rem;
+        padding: 0.6rem;
+    }
+
+    .logs-select,
+    .logs-input,
+    .logs-btn {
+        width: 100%;
+        padding: 0.38rem 0.55rem;
+        font-size: 0.75rem;
+        border-radius: 0.45rem;
+    }
+
+    .logs-input { flex: 1 1 auto; min-height: 0; }
+    .logs-title { font-size: 1.1rem; }
+    .logs-detalhes { grid-template-columns: 1fr 1fr; }
+}
+
+
+/* ---- Item de log clicável + seta ao final do grid ---- */
+.logs-item.is-clicavel { cursor: pointer; }
+
+.logs-caret {
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-self: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.logs-caret:hover { background: transparent; color: var(--primary); }
+.logs-caret.aberto { background: transparent; }
+
+@media (max-width: 640px) {
+    .logs-caret { align-self: flex-start; margin-top: 0.15rem; }
+    .logs-select,
+    .logs-input,
+    .logs-btn { font-size: 0.6rem; padding: 0.32rem 0.45rem; }
+    .logs-select { min-height: 0; font-size: 0.58rem; }
+    .logs-select option { font-size: 0.72rem; }
+}
+
+/* ---- Comparação antes/depois nos detalhes do log ---- */
+.logs-det-campo.full .logs-det-antes,
+.logs-det-campo.full .logs-det-depois {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    border-radius: 0.35rem;
+    font-size: 0.8rem;
+}
+.logs-det-antes {
+    background: color-mix(in srgb, #ef4444 12%, transparent);
+    color: #b91c1c;
+    text-decoration: line-through;
+}
+.logs-det-depois {
+    background: color-mix(in srgb, #22c55e 14%, transparent);
+    color: #15803d;
+    font-weight: 600;
+}
+.logs-det-seta {
+    margin: 0 0.35rem;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+.logs-det-alterado .logs-det-label { color: #2563eb; }
+.logs-det-label em { font-style: normal; font-size: 0.7rem; opacity: 0.8; }
+
+
+/* ---- Limpeza do log por período ---- */
+.logs-limpeza {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.4rem 0 0.9rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+}
+.logs-limpeza-titulo {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+.logs-limpeza-campo {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.logs-limpeza .logs-input { padding: 0.3rem 0.5rem; font-size: 0.78rem; }
+.logs-btn-danger {
+    background: color-mix(in srgb, #dc2626 14%, transparent);
+    color: #dc2626;
+    border: 1px solid color-mix(in srgb, #dc2626 35%, transparent);
+}
+.logs-btn-danger:hover { background: color-mix(in srgb, #dc2626 22%, transparent); }
+body.dark-mode .logs-btn-danger { color: #f87171; }

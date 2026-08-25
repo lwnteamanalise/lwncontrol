@@ -1,0 +1,890 @@
+[
+  {
+    "id": 1,
+    "nome": "ABL - Sumaré/SP",
+    "abreviacao": "ABL",
+    "cidade": "Sumaré",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 2,
+    "nome": "ABL - Cosmópolis/SP",
+    "abreviacao": "ABL Cosmópolis/SP",
+    "cidade": "Cosmópolis",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 3,
+    "nome": "Abrava - São Paulo/SP",
+    "abreviacao": "Abrava",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 4,
+    "nome": "Aché - Guarulhos/SP",
+    "abreviacao": "Aché",
+    "cidade": "Guarulhos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 5,
+    "nome": "Albert Einstein - São Paulo/SP",
+    "abreviacao": "Albert Einstein",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 6,
+    "nome": "Althaia/Reintech",
+    "abreviacao": "Althaia/Reintech",
+    "cidade": "",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 7,
+    "nome": "Apsen",
+    "abreviacao": "Apsen",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 8,
+    "nome": "Ascenty",
+    "abreviacao": "Ascenty",
+    "cidade": "Jundiai",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 9,
+    "nome": "Astrazeneca",
+    "abreviacao": "Astrazeneca",
+    "cidade": "Cotia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 10,
+    "nome": "Bayer",
+    "abreviacao": "Bayer",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 11,
+    "nome": "Beker",
+    "abreviacao": "Beker",
+    "cidade": "Embu",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 12,
+    "nome": "Beneficência Portuguesa",
+    "abreviacao": "Beneficência Portuguesa",
+    "cidade": "Campinas",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 13,
+    "nome": "Beneficiencia Portuguesa",
+    "abreviacao": "Beneficiencia Portuguesa",
+    "cidade": "SP",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 14,
+    "nome": "Biochimico",
+    "abreviacao": "Biochimico",
+    "cidade": "Itatiaia",
+    "uf": "RJ",
+    "ativo": true
+  },
+  {
+    "id": 15,
+    "nome": "Biogen",
+    "abreviacao": "Biogen",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 16,
+    "nome": "Biogenesis Bago",
+    "abreviacao": "Biogenesis Bago",
+    "cidade": "Paraná",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 17,
+    "nome": "Biolab",
+    "abreviacao": "Biolab",
+    "cidade": "Pouso Alegre",
+    "uf": "MG",
+    "ativo": true
+  },
+  {
+    "id": 18,
+    "nome": "Biolab",
+    "abreviacao": "Biolab",
+    "cidade": "Taboão da Serra",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 19,
+    "nome": "Bioline",
+    "abreviacao": "Bioline",
+    "cidade": "Anápolis",
+    "uf": "GO",
+    "ativo": true
+  },
+  {
+    "id": 20,
+    "nome": "Bionat",
+    "abreviacao": "Bionat",
+    "cidade": "Carapicuiba",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 21,
+    "nome": "Bionovis",
+    "abreviacao": "Bionovis",
+    "cidade": "Valinhos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 22,
+    "nome": "Biosintetica",
+    "abreviacao": "Biosintetica",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 23,
+    "nome": "Blau",
+    "abreviacao": "Blau",
+    "cidade": "Cotia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 24,
+    "nome": "BMS",
+    "abreviacao": "BMS",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 25,
+    "nome": "Boehringer",
+    "abreviacao": "Boehringer",
+    "cidade": "Itapecerica",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 26,
+    "nome": "Boehringer",
+    "abreviacao": "Boehringer",
+    "cidade": "Paulínia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 27,
+    "nome": "Brainfarma",
+    "abreviacao": "Brainfarma",
+    "cidade": "Anápolis",
+    "uf": "GO",
+    "ativo": true
+  },
+  {
+    "id": 28,
+    "nome": "Brainfarma",
+    "abreviacao": "Brainfarma",
+    "cidade": "Itapecerica",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 29,
+    "nome": "Calbos",
+    "abreviacao": "Calbos",
+    "cidade": "S. José dos Pinhais",
+    "uf": "PR",
+    "ativo": true
+  },
+  {
+    "id": 30,
+    "nome": "Cath",
+    "abreviacao": "Cath",
+    "cidade": "Care - Limeira",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 31,
+    "nome": "Cellavita",
+    "abreviacao": "Cellavita",
+    "cidade": "Valinhos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 32,
+    "nome": "Cimed",
+    "abreviacao": "Cimed",
+    "cidade": "Pouso Alegre",
+    "uf": "MG",
+    "ativo": true
+  },
+  {
+    "id": 33,
+    "nome": "Clima Space",
+    "abreviacao": "Clima Space",
+    "cidade": "Campinas",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 34,
+    "nome": "Climaeng",
+    "abreviacao": "Climaeng",
+    "cidade": "Aracaju",
+    "uf": "SE",
+    "ativo": true
+  },
+  {
+    "id": 35,
+    "nome": "CPABR",
+    "abreviacao": "CPABR",
+    "cidade": "Sto. A. de Posse",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 36,
+    "nome": "Cristália 1",
+    "abreviacao": "Cristália 1",
+    "cidade": "Itapira",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 37,
+    "nome": "Cristália 3",
+    "abreviacao": "Cristália 3",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 38,
+    "nome": "Cristália 5",
+    "abreviacao": "Cristália 5",
+    "cidade": "Cotia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 39,
+    "nome": "Cristália 8",
+    "abreviacao": "Cristália 8",
+    "cidade": "Pouso Alegre",
+    "uf": "MG",
+    "ativo": true
+  },
+  {
+    "id": 40,
+    "nome": "Darcy Vargas",
+    "abreviacao": "Darcy Vargas",
+    "cidade": "São Paulo",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 41,
+    "nome": "Dechra",
+    "abreviacao": "Dechra",
+    "cidade": "Londrina",
+    "uf": "PR",
+    "ativo": true
+  },
+  {
+    "id": 42,
+    "nome": "DLA",
+    "abreviacao": "DLA",
+    "cidade": "Catanduva",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 43,
+    "nome": "Dr Reddy's",
+    "abreviacao": "Dr Reddy's",
+    "cidade": "Santo Amaro",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 44,
+    "nome": "EBM",
+    "abreviacao": "EBM",
+    "cidade": "Barueri",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 45,
+    "nome": "EBM",
+    "abreviacao": "EBM",
+    "cidade": "Cajamar",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 46,
+    "nome": "Eli Lilly do Brasil",
+    "abreviacao": "Eli Lilly do Brasil",
+    "cidade": "SP",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 47,
+    "nome": "Engeki/Biomanguinho",
+    "abreviacao": "Engeki/Biomanguinho",
+    "cidade": "RJ",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 48,
+    "nome": "FCE Pharma",
+    "abreviacao": "FCE Pharma",
+    "cidade": "São Paulo",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 49,
+    "nome": "Ferring",
+    "abreviacao": "Ferring",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 50,
+    "nome": "Ferring Ltda",
+    "abreviacao": "Ferring Ltda",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 51,
+    "nome": "Fresenius",
+    "abreviacao": "Fresenius",
+    "cidade": "Itapecerica",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 52,
+    "nome": "Hemocentro",
+    "abreviacao": "Hemocentro",
+    "cidade": "Ribeirão Preto",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 53,
+    "nome": "Hemocord",
+    "abreviacao": "Hemocord",
+    "cidade": "Rio Grande do Sul",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 54,
+    "nome": "Hospital Pequeno Principe",
+    "abreviacao": "Hospital Pequeno Principe",
+    "cidade": "Curitiba",
+    "uf": "PR",
+    "ativo": true
+  },
+  {
+    "id": 55,
+    "nome": "IB/Ardueng",
+    "abreviacao": "IB/Ardueng",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 56,
+    "nome": "IB/Lobov",
+    "abreviacao": "IB/Lobov",
+    "cidade": "Butantã - SP",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 57,
+    "nome": "Inovat",
+    "abreviacao": "Inovat",
+    "cidade": "Guarulhos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 58,
+    "nome": "Johnson & Johnson",
+    "abreviacao": "Johnson & Johnson",
+    "cidade": "SJC",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 59,
+    "nome": "Kimberly Clark",
+    "abreviacao": "Kimberly Clark",
+    "cidade": "Mogi",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 60,
+    "nome": "Kimberly Clark",
+    "abreviacao": "Kimberly Clark",
+    "cidade": "Suzano",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 61,
+    "nome": "Kurita",
+    "abreviacao": "Kurita",
+    "cidade": "Arthur Nogueira",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 62,
+    "nome": "Laborpack",
+    "abreviacao": "Laborpack",
+    "cidade": "Santana",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 63,
+    "nome": "Latinofarma",
+    "abreviacao": "Latinofarma",
+    "cidade": "Cotia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 64,
+    "nome": "Libbs",
+    "abreviacao": "Libbs",
+    "cidade": "Embu",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 65,
+    "nome": "Life Pharma",
+    "abreviacao": "Life Pharma",
+    "cidade": "Porto Alegre",
+    "uf": "RS",
+    "ativo": true
+  },
+  {
+    "id": 66,
+    "nome": "L'oreal",
+    "abreviacao": "L'oreal",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 67,
+    "nome": "Lycra",
+    "abreviacao": "Lycra",
+    "cidade": "Paulinia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 68,
+    "nome": "Minancora",
+    "abreviacao": "Minancora",
+    "cidade": "Joinville",
+    "uf": "SC",
+    "ativo": true
+  },
+  {
+    "id": 69,
+    "nome": "Momenta",
+    "abreviacao": "Momenta",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 70,
+    "nome": "Mondelez",
+    "abreviacao": "Mondelez",
+    "cidade": "Recife",
+    "uf": "PE",
+    "ativo": true
+  },
+  {
+    "id": 71,
+    "nome": "Montach",
+    "abreviacao": "Montach",
+    "cidade": "FAT - SJC",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 72,
+    "nome": "Moove",
+    "abreviacao": "Moove",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 73,
+    "nome": "MSD",
+    "abreviacao": "MSD",
+    "cidade": "Montes Claros",
+    "uf": "MG",
+    "ativo": true
+  },
+  {
+    "id": 74,
+    "nome": "Neolab",
+    "abreviacao": "Neolab",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 75,
+    "nome": "Neurotecnologia",
+    "abreviacao": "Neurotecnologia",
+    "cidade": "SP",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 76,
+    "nome": "Novartis",
+    "abreviacao": "Novartis",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 77,
+    "nome": "Nutriex",
+    "abreviacao": "Nutriex",
+    "cidade": "Goiás - GO",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 78,
+    "nome": "Ouro Fino",
+    "abreviacao": "Ouro Fino",
+    "cidade": "Cravinhos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 79,
+    "nome": "Perfetti",
+    "abreviacao": "Perfetti",
+    "cidade": "Vinhedo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 80,
+    "nome": "Pharmaesthetics",
+    "abreviacao": "Pharmaesthetics",
+    "cidade": "Pinhais",
+    "uf": "PR",
+    "ativo": true
+  },
+  {
+    "id": 81,
+    "nome": "Pint Pharma",
+    "abreviacao": "Pint Pharma",
+    "cidade": "Vargem Grande",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 82,
+    "nome": "Plastek",
+    "abreviacao": "Plastek",
+    "cidade": "Indaiatuba",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 83,
+    "nome": "Prati",
+    "abreviacao": "Prati",
+    "cidade": "Toledo - PR",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 84,
+    "nome": "Produmed",
+    "abreviacao": "Produmed",
+    "cidade": "Arujá",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 85,
+    "nome": "Promendon",
+    "abreviacao": "Promendon",
+    "cidade": "Sorocaba",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 86,
+    "nome": "Qualificação de Equipamento",
+    "abreviacao": "Qualificação de Equipamento",
+    "cidade": "",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 87,
+    "nome": "R2",
+    "abreviacao": "R2",
+    "cidade": "Porto Alegre",
+    "uf": "RS",
+    "ativo": true
+  },
+  {
+    "id": 88,
+    "nome": "RBBL",
+    "abreviacao": "RBBL",
+    "cidade": "Hortolândia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 89,
+    "nome": "Reiter Brasil",
+    "abreviacao": "Reiter Brasil",
+    "cidade": "Itupeva",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 90,
+    "nome": "Rosa e Manipulação",
+    "abreviacao": "Rosa e Manipulação",
+    "cidade": "RO",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 91,
+    "nome": "Sanofi",
+    "abreviacao": "Sanofi",
+    "cidade": "Suzano",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 92,
+    "nome": "Santista",
+    "abreviacao": "Santista",
+    "cidade": "Americana",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 93,
+    "nome": "Siarcon",
+    "abreviacao": "Siarcon",
+    "cidade": "Guarulhos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 94,
+    "nome": "Siarcon/ Hitachi",
+    "abreviacao": "Siarcon/ Hitachi",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 95,
+    "nome": "Siarcon/Eurofarma",
+    "abreviacao": "Siarcon/Eurofarma",
+    "cidade": "Itapevi",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 96,
+    "nome": "Sintegra",
+    "abreviacao": "Sintegra",
+    "cidade": "Jardim Paulista",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 97,
+    "nome": "Sintegra",
+    "abreviacao": "Sintegra",
+    "cidade": "Pompéia",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 98,
+    "nome": "Takeda",
+    "abreviacao": "Takeda",
+    "cidade": "Jaguariúna",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 99,
+    "nome": "Telstar IB",
+    "abreviacao": "Telstar IB",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 100,
+    "nome": "Tetra Pak",
+    "abreviacao": "Tetra Pak",
+    "cidade": "Monte Mor",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 101,
+    "nome": "Teuto",
+    "abreviacao": "Teuto",
+    "cidade": "Anápolis - GO",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 102,
+    "nome": "União Quimica",
+    "abreviacao": "União Quimica",
+    "cidade": "Anovis - SP",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 103,
+    "nome": "União Química",
+    "abreviacao": "União Química",
+    "cidade": "Pouso Alegre",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 104,
+    "nome": "União Química",
+    "abreviacao": "União Química",
+    "cidade": "Socorro",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 105,
+    "nome": "Unikka Pharma",
+    "abreviacao": "Unikka Pharma",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 106,
+    "nome": "Unither",
+    "abreviacao": "Unither",
+    "cidade": "Barretos",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 107,
+    "nome": "USP",
+    "abreviacao": "USP",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 108,
+    "nome": "Victa",
+    "abreviacao": "Victa",
+    "cidade": "Campo Grande - SP",
+    "uf": "",
+    "ativo": true
+  },
+  {
+    "id": 109,
+    "nome": "West Pharma",
+    "abreviacao": "West Pharma",
+    "cidade": "Diadema",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "id": 110,
+    "nome": "Westrock",
+    "abreviacao": "Westrock",
+    "cidade": "Três Barras",
+    "uf": "SC",
+    "ativo": true
+  },
+  {
+    "id": 111,
+    "nome": "ZF Do Brasil",
+    "abreviacao": "ZF Do Brasil",
+    "cidade": "Limeira",
+    "uf": "SP",
+    "ativo": true
+  }
+]

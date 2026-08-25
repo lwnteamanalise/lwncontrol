@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "nome": "Lucas Pereira",
+    "cpf": "46060819885",
+    "email": "pereira@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Supervisor",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  },
+  {
+    "id": 2,
+    "nome": "Carlos Eduardo",
+    "cpf": "22154770835",
+    "email": "carlos@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Supervisor",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  },
+  {
+    "id": 3,
+    "nome": "Igor Moura",
+    "cpf": "48599969846",
+    "email": "igor@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Supervisor",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  },
+  {
+    "id": 4,
+    "nome": "Matheus Oliveira",
+    "cpf": "45883217818",
+    "email": "matheus@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Supervisor",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  },
+  {
+    "id": 5,
+    "nome": "Erinaldo Jatobá",
+    "cpf": "26573994876",
+    "email": "erinaldo@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Gerente",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": true,
+      "configuracoes": true
+    }
+  },
+  {
+    "id": 6,
+    "nome": "Fabio Lima",
+    "cpf": "18364398814",
+    "email": "fabio@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Gerente",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": true,
+      "configuracoes": true
+    }
+  },
+  {
+    "id": 7,
+    "nome": "Cassio Mendonça",
+    "cpf": "35743970890",
+    "email": "cassio@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Supervisor",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  },
+  {
+    "id": 8,
+    "nome": "Willian Ito",
+    "cpf": "30586894896",
+    "email": "willian@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Diretor Executivo",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": true,
+      "configuracoes": true
+    }
+  },
+  {
+    "id": 9,
+    "nome": "Cleber Rodrigues",
+    "cpf": "26188269814",
+    "email": "cleber@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Técnico de Qualificação",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  },
+  {
+    "id": 10,
+    "nome": "Guilherme Damasco",
+    "cpf": "43773797870",
+    "email": "guilherme@lwnengenharia.com.br",
+    "senha": "123456",
+    "cargo": "Técnico de Qualificação",
+    "ativo": true,
+    "permissoes": {
+      "dashboard": true,
+      "inventario": true,
+      "calibracao": true,
+      "solicitacao": true,
+      "remanejamento": true,
+      "usuarios": false,
+      "configuracoes": false
+    }
+  }
+]

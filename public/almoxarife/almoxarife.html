@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"content="width=device-width, initial-scale=1.0">
+    <title>LWN Control - Controle de Ativos & Calibração</title>
+    <link rel="stylesheet"href="/almoxarife/almoxarife.css">
+    <link rel="stylesheet" href="/almoxarife/powerbi.css">
+    <link rel="stylesheet" href="/almoxarife/logs.css">
+    <link rel="stylesheet" href="/almoxarife/responsivo.css">
+    <link rel="icon"href="/assets/app-icon-192.png" type="image/png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1e40af">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="LWN Control">
+  <link rel="apple-touch-icon" href="/assets/app-icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/assets/app-icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/assets/app-icon-512.png">
+</head>
+<body>
+<svg width="0"height="0" style="position:absolute;">
+    <defs>
+        <linearGradient id="osRingGradient"x1="0%"y1="0%"x2="100%"y2="100%">
+            <stop offset="0%"stop-color="#3b82f6"/>
+            <stop offset="100%"stop-color="#8b5cf6"/>
+        </linearGradient>
+    </defs>
+</svg>
+
+    <!-- Sidebar Backdrop -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleMobileSidebar()" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(15, 23, 42, 0.4); z-index: 45;"></div>
+
+    <!-- Bottom Navigation Bar -->
+    <nav id="bottom-nav"role="navigation"aria-label="Navegação principal">
+        <div class="bottom-nav-inner">
+            <div id="bnav-pill"></div>
+            <button class="bnav-item active" id="bnav-dashboard" onclick="bnavSwitch('dashboard')"aria-label="Painel Geral">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"><rect x="3"y="3"width="7"height="9"rx="1"/><rect x="14"y="3"width="7"height="5"rx="1"/><rect x="14"y="12"width="7"height="9"rx="1"/><rect x="3"y="16"width="7"height="5"rx="1"/></svg>
+                <span class="bnav-label">Painel</span>
+            </button>
+            <button class="bnav-item" id="bnav-solicitar" onclick="bnavSwitch('solicitar')"aria-label="Solicitar OS">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"stroke-linejoin="round"/><polyline points="14 2 14 8 20 8"/><line x1="12"y1="18"x2="12"y2="12"/><line x1="9"y1="15"x2="15"y2="15"/></svg>
+                <span class="bnav-label">Solicitar</span>
+            </button>
+            <button class="bnav-item" id="bnav-inventario" onclick="bnavSwitch('inventario')"aria-label="Inventário">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"><rect x="2"y="3"width="20"height="5"rx="1"/><rect x="2"y="10"width="20"height="5"rx="1"/><rect x="2"y="17"width="20"height="5"rx="1"/></svg>
+                <span class="bnav-label">Inventário</span>
+            </button>
+            <button class="bnav-item" id="bnav-certificados" onclick="bnavSwitch('certificados')"aria-label="Certificados">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16"y1="13"x2="8"y2="13"/><line x1="16"y1="17"x2="8"y2="17"/></svg>
+                <span class="bnav-label">Certificados</span>
+            </button>
+            <button class="bnav-item" id="bnav-more-btn" onclick="toggleBnavDrawer()"aria-label="Mais opções">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor">
+                    <line x1="3"y1="7"x2="21"y2="7"stroke-linecap="round"/>
+                    <line x1="3"y1="12"x2="21"y2="12"stroke-linecap="round"/>
+                    <line x1="3"y1="17"x2="21"y2="17"stroke-linecap="round"/>
+                </svg>
+                <span class="bnav-label">Mais</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- More Menu Overlay -->
+    <div id="bnav-more-overlay" onclick="closeBnavDrawer()"></div>
+
+    <!-- More Menu Drawer -->
+    <div id="bnav-more-drawer"role="dialog"aria-label="Menu completo"aria-modal="true">
+        <div class="bnav-drawer-handle"></div>
+        <div class="bnav-drawer-title">Todas as seções</div>
+        <div class="bnav-drawer-grid">
+            <button class="bnav-drawer-item" id="bdrawer-dashboard" data-bnav-modulo="dashboard" onclick="bnavDrawerSwitch('dashboard')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><rect x="3"y="3"width="7"height="9"></rect><rect x="14"y="3"width="7"height="5"></rect><rect x="14"y="12"width="7"height="9"></rect><rect x="3"y="16"width="7"height="5"></rect></svg>
+                Painel Geral
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-aprovar" data-bnav-modulo="solicitacoes" onclick="bnavDrawerSwitch('aprovar')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                Aprovar OS
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-minhas-obras" data-bnav-modulo="solicitacoes" onclick="bnavDrawerSwitch('minhas-obras')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M3 21h18"></path><path d="M5 21V7l8-4v18"></path><path d="M19 21V11l-6-4"></path></svg>
+                Minhas Obras
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-solicitar" data-bnav-modulo="solicitacoes" onclick="bnavDrawerSwitch('solicitar')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12"y1="18"x2="12"y2="12"></line><line x1="9"y1="15"x2="15"y2="15"></line></svg>
+                Solicitação
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-conferencia" data-bnav-modulo="conferencia" onclick="bnavDrawerSwitch('conferencia')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                Retirada
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-devolutiva" data-bnav-modulo="devolutiva" onclick="bnavDrawerSwitch('devolutiva')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+                Devolutiva
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-certificados" data-bnav-modulo="certificados" onclick="bnavDrawerSwitch('certificados')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16"y1="13"x2="8"y2="13"/><line x1="16"y1="17"x2="8"y2="17"/></svg>
+                Certificados
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-concluidos" data-bnav-modulo="concluidos" onclick="bnavDrawerSwitch('concluidos')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>
+                Concluídos
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-localizacao" data-bnav-modulo="baias" onclick="bnavDrawerSwitch('localizacao')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><circle cx="12"cy="10"r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+                Localização
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-inventario" data-bnav-modulo="instrumentos" onclick="bnavDrawerSwitch('inventario')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><line x1="4"y1="9"x2="20"y2="9"></line><line x1="4"y1="15"x2="20"y2="15"></line><line x1="10"y1="3"x2="8"y2="21"></line><line x1="16"y1="3"x2="14"y2="21"></line></svg>
+                Inventário
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-manutencao" data-bnav-modulo="manutencao" onclick="bnavDrawerSwitch('manutencao')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                Manutenção
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-remanejamento" data-bnav-modulo="remanejamento" onclick="bnavDrawerSwitch('remanejamento')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                Remanejamento
+                <span id="bdrawer-badge-remanejamento" class="badge badge-danger" style="display:none;margin-left:auto;padding:0.1rem 0.4rem;font-size:0.65rem;">0</span>
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-calibracao" data-bnav-modulo="calibracao" onclick="bnavDrawerSwitch('calibracao')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><circle cx="12"cy="12"r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Calibração
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-clientes" data-bnav-modulo="clientes" onclick="bnavDrawerSwitch('clientes')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9"cy="7"r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Clientes
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-usuarios" data-bnav-modulo="usuarios" onclick="bnavDrawerSwitch('usuarios')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9"cy="7"r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                Colaboradores
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-dashboard-powerbi" data-bnav-modulo="relatorios" onclick="bnavDrawerSwitch('dashboard-powerbi')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><rect x="3"y="3"width="7"height="7"rx="1"/><rect x="14"y="3"width="7"height="7"rx="1"/><rect x="3"y="14"width="7"height="7"rx="1"/><rect x="14"y="14"width="7"height="7"rx="1"/></svg>
+                Dashboard PowerBI
+            </button>
+            <button class="bnav-drawer-item" id="bdrawer-logs" data-bnav-modulo="logs" onclick="bnavDrawerSwitch('logs')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8"y1="13"x2="16"y2="13"></line><line x1="8"y1="17"x2="14"y2="17"></line></svg>
+                Logs
+            </button>
+
+            <button class="menu-item menu-item-logout" onclick="sairApp()">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21"y1="12"x2="9"y2="12"></line>
+                </svg>
+                Sair
+            </button>
+        </div>
+    </div>
+
+    <!-- Gantt Tooltip -->
+    <div class="gantt-tooltip" id="gantt-tooltip"></div>
+
+    <!-- Sidebar -->
+<aside id="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-container">
+            <!-- Logo para modo claro -->
+            <img src="../assets/firstLogoWhite.webp" alt="LWN Engenharia" class="logo-claro" style="height: 2rem; width: auto; object-fit: contain; display: block;"onerror="this.style.display='none'">
+            <!-- Logo para modo escuro -->
+            <img src="../assets/firstLogoBlack.webp" alt="LWN Engenharia" class="logo-escuro" style="height: 2rem; width: auto; object-fit: contain; display: none;"onerror="this.style.display='none'">
+            <span class="brand-text">LWN Control</span>
+        </div>
+        <button class="sidebar-close-btn" onclick="toggleMobileSidebar()"aria-label="Fechar Menu">
+            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5"stroke-linecap="round"stroke-linejoin="round" style="width: 1.25rem; height: 1.25rem;">
+                <line x1="18"y1="6"x2="6"y2="18"></line>
+                <line x1="6"y1="6"x2="18"y2="18"></line>
+            </svg>
+        </button>
+    </div>
+    <ul class="sidebar-menu">
+        <!-- Dashboard - Permissão: dashboard -->
+        <li data-modulo="dashboard">
+            <button class="menu-item active" onclick="switchTab('dashboard')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <rect x="3"y="3"width="7"height="9"></rect>
+                    <rect x="14"y="3"width="7"height="5"></rect>
+                    <rect x="14"y="12"width="7"height="9"></rect>
+                    <rect x="3"y="16"width="7"height="5"></rect>
+                </svg>
+                Painel Geral
+            </button>
+        </li>
+
+        <!-- Retirada (antiga "Separação" / "Conferência") - Permissão: conferencia -->
+        <li data-modulo="conferencia">
+            <button class="menu-item" onclick="switchTab('conferencia')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M9 11l3 3L22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                Retirada
+                <span id="badge-conferencia-count" class="badge badge-info" style="display:none;margin-left:auto;padding:0.1rem 0.4rem;font-size:0.65rem;">0</span>
+            </button>
+        </li>
+
+        <!-- Devolutiva - Permissão: devolutiva -->
+        <li data-modulo="devolutiva">
+            <button class="menu-item" onclick="switchTab('devolutiva')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <polyline points="9 10 4 15 9 20"/>
+                    <path d="M20 4v7a4 4 0 0 1-4 4H4"/>
+                </svg>
+                Devolutiva
+                <span id="badge-devolutiva-count" class="badge badge-warning" style="display:none;margin-left:auto;padding:0.1rem 0.4rem;font-size:0.65rem;">0</span>
+            </button>
+        </li>
+
+        <!-- OS Concluídas - Permissão: concluidos -->
+        <li data-modulo="concluidos">
+            <button class="menu-item" onclick="switchTab('concluidos')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                OS Concluídas
+            </button>
+        </li>
+
+        <!-- Certificados - Permissão: certificados -->
+        <li data-modulo="certificados">
+            <button class="menu-item" onclick="switchTab('certificados')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16"y1="13"x2="8"y2="13"/>
+                    <line x1="16"y1="17"x2="8"y2="17"/>
+                </svg>
+                Certificados
+                <span id="badge-cert-count" class="badge badge-danger" style="display: none; margin-left: auto; padding: 0.1rem 0.4rem; font-size: 0.65rem;">0</span>
+            </button>
+        </li>
+
+        <!-- Localização - Permissão: baias -->
+        <li data-modulo="baias">
+            <button class="menu-item" onclick="switchTab('localizacao')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <circle cx="12"cy="10"r="3"/>
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                </svg>
+                Localização
+            </button>
+        </li>
+
+        <!-- Inventário - Permissão: instrumentos -->
+        <li data-modulo="instrumentos">
+            <button class="menu-item" onclick="switchTab('inventario')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <line x1="4"y1="9"x2="20"y2="9"></line>
+                    <line x1="4"y1="15"x2="20"y2="15"></line>
+                    <line x1="10"y1="3"x2="8"y2="21"></line>
+                    <line x1="16"y1="3"x2="14"y2="21"></line>
+                </svg>
+                Inventário
+            </button>
+        </li>
+
+        <!-- Manutenção - Permissão: manutencao -->
+        <li data-modulo="manutencao">
+            <button class="menu-item" onclick="switchTab('manutencao')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+                Manutenção
+                <span id="badge-manutencao-count" class="badge badge-danger" style="display:none;margin-left:auto;padding:0.1rem 0.4rem;font-size:0.65rem;">0</span>
+            </button>
+        </li>
+
+        <!-- Remanejamento - Permissão: remanejamento (INDEPENDENTE) -->
+        <li data-modulo="remanejamento">
+            <button class="menu-item" onclick="switchTab('remanejamento')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <polyline points="17 1 21 5 17 9"></polyline>
+                    <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                    <polyline points="7 23 3 19 7 15"></polyline>
+                    <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                </svg>
+                Remanejamento
+                <!-- Acende quando existe remanejamento parado no colo deste
+                     usuário: para enviar, para receber ou para devolver. -->
+                <span id="badge-remanejamento-count" class="badge badge-danger" style="display:none;margin-left:auto;padding:0.1rem 0.4rem;font-size:0.65rem;">0</span>
+            </button>
+        </li>
+
+        <!-- Calibração - Permissão: calibracao (INDEPENDENTE) -->
+        <li data-modulo="calibracao">
+            <button class="menu-item" onclick="switchTab('calibracao')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <circle cx="12"cy="12"r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                Calibração
+            </button>
+        </li>
+
+        <!-- Clientes - Permissão: clientes -->
+        <li data-modulo="clientes">
+            <button class="menu-item" onclick="switchTab('clientes')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9"cy="7"r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                Clientes
+            </button>
+        </li>
+
+        <!-- Colaboradores - Permissão: usuarios -->
+        <li data-modulo="usuarios">
+            <button class="menu-item" onclick="switchTab('usuarios')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9"cy="7"r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+                Colaboradores
+            </button>
+        </li>
+
+        <!-- Dashboard PowerBI - Permissão: relatorios -->
+        <li data-modulo="relatorios">
+            <button class="menu-item" id="menu-dashboard-powerbi" onclick="switchTab('dashboard-powerbi')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <rect x="3"y="3"width="7"height="7"rx="1"/>
+                    <rect x="14"y="3"width="7"height="7"rx="1"/>
+                    <rect x="3"y="14"width="7"height="7"rx="1"/>
+                    <rect x="14"y="14"width="7"height="7"rx="1"/>
+                </svg>
+                Dashboard PowerBI
+            </button>
+        </li>
+
+        <!-- Logs - Permissão: logs -->
+        <li data-modulo="logs">
+            <button class="menu-item" id="menu-logs" onclick="switchTab('logs')">
+                <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="8"y1="13"x2="16"y2="13"></line>
+                    <line x1="8"y1="17"x2="14"y2="17"></line>
+                </svg>
+                Logs
+            </button>
+        </li>
+    </ul>
+    <div class="sidebar-logout-zone">
+        <button class="menu-item menu-item-logout" onclick="sairApp()">
+            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21"y1="12"x2="9"y2="12"></line>
+            </svg>
+            Sair
+        </button>
+    </div>
+    <div class="sidebar-footer">
+        <p><strong>LWN Engenharia &copy; 2026</strong></p>
+        <p style="opacity: 0.6; font-size: 0.65rem; margin-top: 0.25rem;">Desenvolvido por Luis</p>
+    </div>
+</aside>
+
+    <!-- Main Content -->
+    <main id="main-content">
+        <header>
+            <div class="header-actions">
+                <button class="theme-toggle-btn" onclick="toggleTheme()"aria-label="Alternar tema claro/escuro">
+                    <svg class="sun-icon"viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><circle cx="12"cy="12"r="5"></circle><line x1="12"y1="1"x2="12"y2="3"></line><line x1="12"y1="21"x2="12"y2="23"></line><line x1="4.22"y1="4.22"x2="5.64"y2="5.64"></line><line x1="18.36"y1="18.36"x2="19.78"y2="19.78"></line><line x1="1"y1="12"x2="3"y2="12"></line><line x1="21"y1="12"x2="23"y2="12"></line><line x1="4.22"y1="19.78"x2="5.64"y2="18.36"></line><line x1="18.36"y1="5.64"x2="19.78"y2="4.22"></line></svg>
+                    <svg class="moon-icon"viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                </button>
+            </div>
+            <div class="notifications-dropdown" id="notifications-dropdown">
+                <div class="notif-header">
+                    <span class="notif-title">Atividades Auditadas</span>
+                    <button class="btn btn-outline btn-sm" onclick="clearNotifications()" style="padding: 0.15rem 0.4rem; font-size: 0.65rem;">Marcar lidas</button>
+                </div>
+                <div class="notif-list" id="notifications-list"></div>
+            </div>
+        </header>
+
+        <div class="content-container">
+
+            <!-- DASHBOARD -->
+            <section id="dashboard-tab" class="tab-content active">
+                <div style="margin-bottom: 1.5rem;">
+                    <h2  style="font-size: 1.6rem; font-weight: 850; color: var(--text-main); letter-spacing: -0.02em;"><span id="dash-greeting">Ótimo dia</span>, <strong class="dashName" id="dash-user-name" style="color: var(--primary);">Usuário</strong>!</h2> 
+                    <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 0.25rem;">Bem-vindo ao LWN Control,</p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.1rem;">Aqui está o resumo de hoje.</p>
+                </div>
+                <!-- Volta para o resumo do Painel Geral. Fica ACIMA da aba e
+                     só ocupa espaço quando um painel está aberto: a linha
+                     cresce de altura 0 no mesmo tempo da aba que se abre. -->
+                <div class="painel-voltar-linha" id="painel-voltar-linha">
+                    <button type="button" class="painel-voltar" id="painel-voltar" onclick="fecharPainelOS()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg>
+                        Voltar
+                    </button>
+                </div>
+
+                <div class="painel-acoes" id="painel-acoes">
+                    <!-- Pílula que desliza por baixo do botão ativo -->
+                    <div class="painel-acao-pill" id="painel-acao-pill"></div>
+                    <button type="button" class="painel-acao-btn" id="painel-btn-solicitar" onclick="abrirPainelOS('solicitacao')">Solicitar</button>
+                    <button type="button" class="painel-acao-btn" id="painel-btn-aprovar" onclick="abrirPainelOS('aprovacao')">
+                        Aprovar
+                        <span class="painel-acao-badge" id="painel-badge-aprovar" style="display:none;">0</span>
+                    </button>
+                    <button type="button" class="painel-acao-btn" id="painel-btn-obras" onclick="abrirPainelOS('gerenciamento')">Minhas Obras</button>
+                </div>
+
+                <div id="painel-resumo">
+
+                <!-- ============================================================
+                     QUADRO DE BAIAS
+                     Os quatro cartões são FILTROS: clicar em um deles reduz a
+                     tabela abaixo às baias daquela situação. Clicar de novo
+                     (ou em "Total de baias") volta a mostrar todas.
+                     ============================================================ -->
+                <div class="baias-cards" id="baias-cards">
+                    <button type="button" class="baia-card ativo" data-filtro="todas" onclick="filtrarBaiasPainel('todas')">
+                        <div class="baia-card-info">
+                            <h3>Total de baias</h3>
+                            <div class="baia-card-valor" id="baias-total">0</div>
+                        </div>
+                        <span class="baia-card-icone icone-total">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"stroke-linecap="round"stroke-linejoin="round"><rect x="3"y="3"width="18"height="18"rx="2"></rect><path d="M3 9h18"></path><path d="M3 15h18"></path><path d="M9 9v12"></path></svg>
+                        </span>
+                    </button>
+                    <button type="button" class="baia-card" data-filtro="em_campo" onclick="filtrarBaiasPainel('em_campo')">
+                        <div class="baia-card-info">
+                            <h3>Baias em uso</h3>
+                            <div class="baia-card-valor" id="baias-em-campo">0</div>
+                        </div>
+                        <span class="baia-card-icone icone-campo">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"stroke-linecap="round"stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                        </span>
+                    </button>
+                    <button type="button" class="baia-card" data-filtro="no_almoxarife" onclick="filtrarBaiasPainel('no_almoxarife')">
+                        <div class="baia-card-info">
+                            <h3>Baias disponíveis</h3>
+                            <div class="baia-card-valor" id="baias-disponiveis">0</div>
+                        </div>
+                        <span class="baia-card-icone icone-disponivel">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"stroke-linecap="round"stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                        </span>
+                    </button>
+                    <button type="button" class="baia-card" data-filtro="reservada" onclick="filtrarBaiasPainel('reservada')">
+                        <div class="baia-card-info">
+                            <h3>Baias reservadas</h3>
+                            <div class="baia-card-valor" id="baias-reservadas">0</div>
+                        </div>
+                        <span class="baia-card-icone icone-reservada">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"stroke-linecap="round"stroke-linejoin="round"><rect x="3"y="4"width="18"height="18"rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path></svg>
+                        </span>
+                    </button>
+                </div>
+
+                <section class="baias-quadro">
+                    <header class="baias-quadro-topo">
+                        <h3 id="baias-quadro-titulo">Total de baias</h3>
+                        <span class="baias-quadro-contagem" id="baias-quadro-contagem"></span>
+                    </header>
+                    <div class="baias-tabela-wrap">
+                        <table class="baias-tabela">
+                            <thead>
+                                <tr>
+                                    <th>Baia I.D</th>
+                                    <th>Obra</th>
+                                    <th>Período</th>
+                                    <th class="col-status">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="baias-tbody"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header">
+                        <span class="card-title">Próximas calibrações</span>
+                        <span id="dash-calibration-badge" class="badge badge-danger">0</span>
+                    </div>
+                    <div class="card-body" style="padding: 0;">
+                        <div id="dash-calibration-list" style="max-height: 280px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+                </div><!-- /painel-resumo -->
+
+                <!-- CONTEÚDO - SOLICITAÇÃO -->
+                <div id="os-tab-solicitacao" class="os-tab-content" style="display:none;">
+                    <div class="card" style="max-width: 900px; margin: 0 auto;">
+                        <div class="card-header">
+                            <span class="card-title">Solicitação de Instrumentos</span>
+                        </div>
+                        <form id="form-solicitacao" onsubmit="return false;">
+                            <div class="card-body">
+                                <!-- Faixa do MODO EDIÇÃO.
+                                     A mesma tela serve para duas coisas: criar uma solicitação
+                                     nova e, quando o responsável clica em "Editar" na aprovação,
+                                     corrigir a lista de uma OS antes de aprová-la. A faixa existe
+                                     para que ninguém confunda os dois usos. -->
+                                <div id="solicitacao-modo-edicao" style="display:none;"></div>
+                                <div class="form-grid">
+                                    <div class="form-group form-grid-full">
+                                        <label class="form-label" for="os-client">Cliente</label>
+                                        <select id="os-client" class="form-select os-select-padrao" required></select>
+                                    </div>
+                                    <div class="form-group form-grid-full">
+                                        <label class="form-label" for="os-supervisor">Responsável pela Obra</label>
+                                        <select id="os-supervisor" class="form-select os-select-padrao" required>
+                                            <option value="">Selecione o responsável</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="os-start-date">Data de Início</label>
+                                        <input type="date" id="os-start-date" class="form-input" onchange="verificarDisponibilidadePeriodo()" style="cursor: pointer;">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="os-end-date">Previsão de Término</label>
+                                        <input type="date" id="os-end-date" class="form-input" onchange="verificarDisponibilidadePeriodo()" style="cursor: pointer;">
+                                    </div>
+                                    <!-- BAIAS - Adicione abaixo do campo data-fim 
+                                    <div class="form-group" style="grid-column: span 2;">
+                                        <label class="form-label" for="os-baia">Baia (Prateleira)</label>
+                                        <select id="os-baia" class="form-select" style="width:100%;padding:0.6rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;">
+                                            <option value="">— Selecione a Baia —</option> -->
+                                            <!-- Populado via JavaScript -->
+                                        <!-- </select>
+                                        <small style="color: var(--text-muted); font-size: 0.7rem; display: block; margin-top: 0.2rem;">
+                                            Selecione uma baia para reservar os equipamentos
+                                        </small>
+                                    </div> -->
+                                    <div class="form-grid-full" style="margin-top: 1rem;">
+                                        <label class="form-label" style="margin-bottom: 0.75rem; display: block;">Selecione os Instrumentos</label>
+
+                                        <!-- SUB-ABAS: LISTA HVAC / LISTA DE GASES -->
+                                        <div style="display:flex;gap:0.25rem;border-bottom:1px solid var(--border-color);margin-bottom:0.75rem;">
+                                            <button type="button" id="instr-tab-hvac" onclick="switchInstrTab('hvac')"
+                                                    style="padding:0.5rem 1rem;font-size:0.85rem;font-weight:700;background:none;border:none;border-bottom:2px solid var(--primary);color:var(--primary);cursor:pointer;">
+                                                Lista HVAC
+                                            </button>
+                                            <button type="button" id="instr-tab-gases" onclick="switchInstrTab('gases')"
+                                                    style="padding:0.5rem 1rem;font-size:0.85rem;font-weight:700;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;">
+                                                Lista de Gases
+                                            </button>
+                                        </div>
+
+                                        <!-- Painel com accordions -->
+                                        <div id="instr-panel-todos" style="display: none; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                                            <!-- Renderizado via JavaScript -->
+                                        </div>
+
+                                        <div id="instr-panel-ensaios" style="display: none; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                                            <!-- Renderizado via JavaScript -->
+                                        </div>
+
+                                        <div id="instr-panel-hvac" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                                            <!-- Renderizado via JavaScript -->
+                                        </div>
+
+                                        <div id="instr-panel-gases" style="display: none; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                                            <!-- Renderizado via JavaScript -->
+                                        </div>
+
+
+                                        <!-- Resumo dos selecionados -->
+                                        <div id="solicitacao-resumo" style="border:1px solid var(--border-color);border-radius:0.5rem;padding:0.5rem;background:var(--bg-surface);margin-top:0.5rem;">
+                                            <div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.9rem;">
+                                                Nenhum instrumento selecionado.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="form-group form-grid-full">
+                                        <label class="form-label" for="os-notes">Observações Gerais</label>
+                                        <textarea id="os-notes" class="form-input" rows="3" placeholder="Insira restrições, observações ou requisitos específicos..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <button type="button" class="btn btn-primary" style="width: 100%;" id="solicitacao-submit-btn"
+                                        onclick="solicitacaoAcaoPrincipal()">Revisar e Enviar</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <div id="solicitar-confirm-card" style="display:none; max-width:900px; margin: 1.5rem auto 0;">
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Confirmar Solicitação</span>
+                                <span class="badge badge-warning">Revise antes de enviar</span>
+                            </div>
+                            <div class="card-body" id="solicitar-confirm-body"></div>
+                            <div class="card-footer" style="display:flex; gap:0.75rem; justify-content:flex-end; flex-wrap:nowrap;">
+                                <button class="btn btn-outline" onclick="hideSolicitacaoConfirm()" style="white-space:nowrap;">← Editar Lista</button>
+                                <button class="btn btn-primary" onclick="abrirConfirmacaoFinalSolicitacao()" style="white-space:nowrap;">Confirmar e Enviar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTEÚDO - GERENCIAR OS -->
+                <div id="os-tab-gerenciamento" class="os-tab-content" style="display:none; max-width:900px; margin:0 auto;">
+                    <div id="os-lista-container">
+                        <!-- Renderizado via JavaScript -->
+                    </div>
+                </div>
+
+                <!-- CONTEÚDO - APROVAÇÃO (responsável pela obra) -->
+                <!-- max-width igual ao dos outros dois painéis: a aba recolhida é medida
+                     a partir daqui (a Aprovação monta `.aprov-card`, não `.card`),
+                     e sem isso ela abria com a largura toda da tela. -->
+                <div id="os-tab-aprovacao" class="os-tab-content" style="display:none; max-width:900px; margin:0 auto;">
+                    <div id="os-aprovacao-container">
+                        <!-- Renderizado via JavaScript (aprovacao.js) -->
+                    </div>
+                </div>
+            </section>
+
+
+            <!-- ============================================================ -->
+            <!-- SUBSTITUA A SEÇÃO "RESPOSTAS"POR ESTA NOVA SEÇÃO "CERTIFICADOS" -->
+            <!-- ============================================================ -->
+
+            <!-- CERTIFICADOS -->
+            <!-- Certificados foi unificado dentro da aba Calibração -->
+
+            <!-- SEPARAÇÃO -->
+            <section id="separacao-tab" class="tab-content">
+                <div class="card" style="max-width: 1000px; margin: 0 auto;" id="separacao-process-container">
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="1.5"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                        <p>Nenhuma O.S. selecionada para separação. Vá até o módulo <strong>Respostas / Inbox</strong>e clique em "Iniciar Separação"para prosseguir.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CONFERÊNCIA -->
+            <section id="conferencia-tab" class="tab-content">
+                <div class="action-bar" style="margin-bottom: 1.5rem;">
+                    <span class="card-title" style="font-size: 1.15rem; font-weight: 800; margin-right: 0.9rem;">Retirada</span>
+                    <span class="badge badge-info" id="conferencia-active-badge" style="margin-left: 0.25rem;">0 aguardando retirada</span>
+                    <button type="button" class="btn btn-outline btn-sm" id="conferencia-btn-atualizar"
+                            style="margin-left:auto;padding:0.35rem 0.9rem;font-size:0.78rem;"
+                            title="Buscar as OS direto do banco, sem recarregar a página"
+                            onclick="confAtualizarLista('conferencia')">Atualizar</button>
+                </div>
+                <!-- Lista de OSs aguardando conferência -->
+                <div id="conferencia-lista"></div>
+                <!-- Tela de conferência de uma OS (bipagem) -->
+                <div id="conferencia-detalhe" style="display:none;"></div>
+            </section>
+
+            <!-- DEVOLUTIVA -->
+            <section id="devolutiva-tab" class="tab-content">
+                <div class="action-bar" style="margin-bottom: 1.5rem;">
+                    <span class="card-title" style="font-size: 1.15rem; font-weight: 800; margin-right: 0.9rem;">Devolutiva</span>
+                    <span class="badge badge-warning" id="devolutiva-active-badge" style="margin-left: 0.25rem;">0 em campo</span>
+                    <button type="button" class="btn btn-outline btn-sm" id="devolutiva-btn-atualizar"
+                            style="margin-left:auto;padding:0.35rem 0.9rem;font-size:0.78rem;"
+                            title="Buscar as OS direto do banco, sem recarregar a página"
+                            onclick="confAtualizarLista('devolutiva')">Atualizar</button>
+                </div>
+                <div id="devolutiva-lista"></div>
+                <div id="devolutiva-detalhe" style="display:none;"></div>
+            </section>
+
+
+            <!-- CONCLUÍDOS -->
+            <section id="concluidos-tab" class="tab-content">
+                <div class="concluidos-container">
+                    <!-- Cabeçalho -->
+                    <div class="concluidos-header">
+                        <span class="titulo">Concluídos</span>
+                        <span class="badge badge-success" id="concluidos-total-badge">0 concluídas</span>
+                    </div>
+
+                    <!-- Seletor de Ano -->
+                    <div class="ano-selector-wrapper">
+                        <button class="ano-nav-btn" onclick="mudarAnoConcluidos(-1)"aria-label="Ano anterior">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5" style="width:1.1rem;height:1.1rem;"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        </button>
+                        <span class="ano-label" id="concluidos-ano-label">2026</span>
+                        <button class="ano-nav-btn" onclick="mudarAnoConcluidos(1)"aria-label="Próximo ano">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5" style="width:1.1rem;height:1.1rem;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </button>
+                    </div>
+
+                    <!-- Grid de Meses - 4 colunas ocupando toda tela -->
+                    <div id="concluidos-meses-grid" class="meses-grid-concluidos">
+                        <!-- Renderizado via JavaScript -->
+                    </div>
+
+                    <!-- Lista de OSs do mês selecionado -->
+                    <div id="concluidos-os-lista" class="os-lista-mes">
+                        <!-- Renderizado via JavaScript -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- LOCALIZAÇÃO -->
+            <section id="localizacao-tab" class="tab-content">
+                <div class="localizacao-container">
+                    <!-- Cabeçalho -->
+                    <div class="localizacao-header">
+                        <span class="titulo">Localização</span>
+                        <span class="badge badge-info" id="localizacao-total-badge">0 instrumentos</span>
+                    </div>
+
+                    <!-- Calendário -->
+                    <div class="loc-cal-card">
+                        <div class="loc-cal-top">
+                            <div class="loc-cal-nav">
+                                <button class="loc-cal-arrow" onclick="locCalNavegar(-1)"aria-label="Anterior">
+                                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                                </button>
+                                <button class="loc-cal-arrow" onclick="locCalNavegar(1)"aria-label="Próximo">
+                                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                </button>
+                                <svg class="loc-cal-icon"viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><rect x="3"y="4"width="18"height="18"rx="2"/><line x1="16"y1="2"x2="16"y2="6"/><line x1="8"y1="2"x2="8"y2="6"/><line x1="3"y1="10"x2="21"y2="10"/></svg>
+                                <span class="loc-cal-periodo" id="loc-cal-periodo">—</span>
+                            </div>
+                            <button class="loc-cal-hoje" onclick="locCalHoje()">Hoje</button>
+                        </div>
+
+                        <div class="loc-cal-toggle">
+                            <button id="loc-cal-modo-semanal" class="loc-cal-toggle-btn active" onclick="locCalSetModo('semanal')">Semanal</button>
+                            <button id="loc-cal-modo-mensal" class="loc-cal-toggle-btn" onclick="locCalSetModo('mensal')">Mensal</button>
+                        </div>
+
+                        <div id="loc-cal-grid" class="loc-cal-grid"></div>
+
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.7rem;padding-top:0.7rem;border-top:1px solid var(--border-color);">
+                            <label for="loc-periodo-inicio" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">Período:</label>
+                            <input type="date" id="loc-periodo-inicio" class="form-input" onchange="locPeriodoAutomatico()" style="padding:0.3rem 0.5rem;font-size:0.8rem;width:auto;">
+                            <span style="font-size:0.75rem;color:var(--text-muted);">até</span>
+                            <input type="date" id="loc-periodo-fim" class="form-input" onchange="locPeriodoAutomatico()" style="padding:0.3rem 0.5rem;font-size:0.8rem;width:auto;">
+                            <button type="button" class="btn btn-outline btn-sm" id="loc-multi-dia-btn" onclick="locAlternarMultiDia()" style="padding:0.3rem 0.7rem;font-size:0.78rem;">Selecionar mais de um dia</button>
+                            <button type="button" class="btn btn-outline btn-sm" id="loc-periodo-limpar" onclick="locLimparPeriodo()" style="display:none;padding:0.3rem 0.7rem;font-size:0.78rem;">Voltar a dia único</button>
+                        </div>
+                    </div>
+
+                    <!-- Detalhe do dia -->
+                    <div class="localizacao-detalhe-container active" id="localizacao-detalhe-container">
+                        <div class="localizacao-detalhe-header">
+                            <div style="display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;">
+                                <span class="titulo-mes" id="localizacao-detalhe-mes">—</span>
+                            </div>
+                            <span style="font-size:0.7rem;color:var(--text-muted);" id="localizacao-detalhe-periodo">Selecione uma data</span>
+                        </div>
+
+                        <!-- Chips de contagem (filtros rápidos) -->
+                        <div class="loc-chips" id="loc-chips"></div>
+
+                        <!-- FILTROS -->
+                        <div class="localizacao-filtros">
+                            <div class="filtro-group">
+                                <label for="filtro-localizacao-status">Status:</label>
+                                <select id="filtro-localizacao-status" onchange="aplicarFiltroLocalizacao()">
+                                    <option value="todos">Todos</option>
+                                    <option value="aguardando">Aguardando Retirada</option>
+                                    <option value="separado">Separado</option>
+                                    <option value="reservado">Reservado</option>
+                                    <option value="em_campo">Em Campo</option>
+                                    <option value="concluida">Concluído</option>
+                                    <option value="em_calibracao">Em Calibração</option>
+                                    <option value="almoxarife">No Almoxarife</option>
+                                </select>
+                            </div>
+                            <div class="filtro-group">
+                                <label for="filtro-localizacao-cliente">Clientes em obra:</label>
+                                <select id="filtro-localizacao-cliente" onchange="aplicarFiltroLocalizacao()">
+                                    <option value="todos">Todos os clientes</option>
+                                </select>
+                            </div>
+                            <div class="filtro-group">
+                                <label for="filtro-localizacao-ferramenta">Ferramentas em campo:</label>
+                                <select id="filtro-localizacao-ferramenta" onchange="aplicarFiltroLocalizacao()">
+                                    <option value="todos">Todas as TAGs</option>
+                                </select>
+                            </div>
+                            <div class="filtro-group">
+                                <label for="filtro-localizacao-busca">Buscar:</label>
+                                <input type="text" id="filtro-localizacao-busca" placeholder="TAG, tipo, cliente ou OS..."oninput="aplicarFiltroLocalizacao()">
+                            </div>
+                            <button class="btn-limpar" onclick="limparFiltroLocalizacao()">Limpar</button>
+                        </div>
+
+                        <!-- Grid de Instrumentos -->
+                        <div id="localizacao-instrumentos-grid" class="localizacao-instrumentos-grid">
+                            <!-- Renderizado via JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- INVENTÁRIO -->
+            <section id="inventario-tab" class="tab-content">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span class="card-title" style="font-size:1.15rem;font-weight:800;color:var(--text-main);">Inventário</span>
+                    <div class="acoes-grid-mobile">
+                        <button onclick="openNovoTipoModal()" class="btn btn-primary" style="display:flex;align-items:center;gap:0.4rem;padding:0.5rem 1rem;border:none;border-radius:0.5rem;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5" style="width:0.9rem;height:0.9rem;"><path d="M12 5v14M5 12h14"/></svg>
+                            Novo Ativo
+                        </button>
+                        <button onclick="openInstrumentFormModal()" class="btn btn-success" style="display:flex;align-items:center;gap:0.4rem;padding:0.5rem 1rem;border:none;border-radius:0.5rem;background:#10b981;color:white;cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5" style="width:0.9rem;height:0.9rem;"><path d="M12 5v14M5 12h14"/></svg>
+                            Adicionar Instrumento
+                        </button>
+                        <button onclick="abrirModalClassificacaoPorAtivo()" class="btn btn-outline" style="display:flex;align-items:center;gap:0.4rem;padding:0.5rem 1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:var(--bg-card);color:var(--text-main);font-size:0.85rem;font-weight:600;cursor:pointer;">
+                             Classificar por Lista
+                        </button>
+                        <button id="btn-editar-inventario" onclick="toggleModoEdicaoInventario()" class="btn btn-outline" style="display:flex;align-items:center;gap:0.4rem;padding:0.5rem 1rem;border:2px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width:0.9rem;height:0.9rem;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            Editar
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- FILTROS -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;background:var(--bg-surface);padding:1rem 1.25rem;border-radius:0.75rem;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+                    <div style="flex:2;min-width:200px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Buscar</label>
+                        <input type="text" id="inv-search" class="form-input" placeholder="Buscar por TAG, tipo, fabricante..." style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;"oninput="renderInventarioTable()">
+                    </div>
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Status</label>
+                        <select id="inv-filter-status" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;" onchange="renderInventarioTable()">
+                            <option value="todos">Todos</option>
+                            <option value="disponivel">Disponível</option>
+                            <option value="em_campo">Em Campo</option>
+                            <option value="em_calibracao">Em Calibração</option>
+                            <option value="em_manutencao">Em Manutenção</option>
+                            <option value="avariado">Avariado</option>
+                            <option value="reservado">Reservado</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;min-width:180px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Classificação da Lista</label>
+                        <select id="inv-filter-classificacao" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;" onchange="renderInventarioTable()">
+                            <option value="todos">Todas as classificações</option>
+                            <option value="HVAC">HVAC</option><option value="Gases">Gases</option>
+                            <option value="sem_ensaio">Sem classificação definida</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;align-items:center;padding-bottom:0.1rem;">
+                        <button onclick="document.getElementById('inv-search').value='';document.getElementById('inv-filter-status').value='todos';document.getElementById('inv-filter-classificacao').value='todos';renderInventarioTable()" class="btn btn-outline" style="padding:0.5rem 1.25rem;border:2px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            Limpar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- CONTADOR -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span id="inv-pagination-text" style="font-size:0.85rem;color:var(--text-muted);">Carregando...</span>
+                </div>
+                
+                <!-- CARDS -->
+                <div id="inventario-cards-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem;padding:0 0 2rem;">
+                    <!-- Renderizado via JavaScript -->
+                </div>
+            </section>
+
+            <!-- MANUTENÇÃO -->
+            <section id="manutencao-tab" class="tab-content">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span class="card-title" style="font-size:1.15rem;font-weight:800;color:var(--text-main);">Manutenção</span>
+                </div>
+
+                <!-- FILTROS -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;background:var(--bg-surface);padding:1rem 1.25rem;border-radius:0.75rem;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+                    <div style="flex:2;min-width:200px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Buscar</label>
+                        <input type="text" id="man-search" class="form-input" placeholder="Buscar por TAG, tipo, fabricante..." style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;"oninput="renderManutencaoTable()">
+                    </div>
+                    <div style="flex:1;min-width:180px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Situação</label>
+                        <select id="man-filter-situacao" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;" onchange="renderManutencaoTable()">
+                            <option value="todos">Todas</option>
+                            <option value="realizada">Com manutenção</option>
+                            <option value="prevista">Em manutenção</option>
+                            <option value="sem">Sem manutenção</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;align-items:center;padding-bottom:0.1rem;">
+                        <button onclick="document.getElementById('man-search').value='';document.getElementById('man-filter-situacao').value='todos';renderManutencaoTable()" class="btn btn-outline" style="padding:0.5rem 1.25rem;border:2px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            Limpar
+                        </button>
+                    </div>
+                </div>
+
+                <div id="manutencao-avarias-container" style="display:none;flex-direction:column;gap:0.6rem;margin-bottom:1.5rem;"></div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span id="man-pagination-text" style="font-size:0.85rem;color:var(--text-muted);">Carregando...</span>
+                </div>
+
+                <div id="manutencao-cards-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem;padding:0 0 2rem;">
+                    <!-- Renderizado via JavaScript -->
+                </div>
+            </section>
+
+            <!-- REMANEJAMENTO -->
+            <section id="remanejamento-tab" class="tab-content">
+                <!-- Abas do Remanejamento.
+                     "Estou devolvendo" só existe enquanto alguém tiver passado
+                     uma ferramenta para este usuário sem obra de destino; assim
+                     que ela é devolvida, a aba some (ver remAtualizarAbas). -->
+                <div class="rem-abas" id="rem-abas">
+                    <!-- Solicitar remanejamento: só para os cargos com a permissão
+                         "solicitar_remanejamento". O gestor monta o remanejamento
+                         inteiro (origem, quem envia, quem recebe, destino e as
+                         ferramentas) e manda para o responsável apenas executar. -->
+                    <button type="button" class="rem-aba" id="rem-aba-solicitar" style="display:none;" onclick="showRemMode('solicitar')">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                        Solicitar Remanejamento
+                    </button>
+                    <button type="button" class="rem-aba" id="rem-aba-passando" onclick="showRemMode('passando')">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                        Estou Passando
+                        <span class="rem-aba-badge" id="rem-aba-badge-passando" style="display:none;">0</span>
+                    </button>
+                    <button type="button" class="rem-aba" id="rem-aba-recebendo" onclick="showRemMode('recebendo')">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                        Estou Recebendo
+                        <span class="rem-aba-badge" id="rem-aba-badge-recebendo" style="display:none;">0</span>
+                    </button>
+                    <button type="button" class="rem-aba" id="rem-aba-devolvendo" style="display:none;" onclick="showRemMode('devolvendo')">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/></svg>
+                        Estou Devolvendo
+                        <span class="rem-aba-badge" id="rem-aba-badge-devolvendo" style="display:none;">0</span>
+                    </button>
+                    <button type="button" class="rem-aba" id="rem-aba-historico" onclick="showRemMode('historico')">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><circle cx="12"cy="12"r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Histórico
+                    </button>
+                </div>
+
+                <div id="rem-mode-select" style="max-width: 600px; margin: 0 auto; text-align: center; padding: 2.5rem 0;">
+                    <h2 style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.4rem;">Remanejamento de Instrumentos</h2>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">Escolha uma das abas acima para começar.</p>
+                </div>
+
+                <!-- SOLICITAR REMANEJAMENTO (gestor) -->
+                <div id="rem-solicitar-form" style="display:none; max-width: 820px; margin: 0 auto;">
+                    <div class="card">
+                        <div class="card-header">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <span class="card-title">Solicitar Remanejamento</span>
+                            </div>
+                            <span class="badge badge-info">Vai para o responsável executar</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-grid" style="margin-bottom:1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Obra de Origem <span style="color:var(--danger,#ef4444);">*</span></label>
+                                    <select id="rem-sol-origem" class="form-select" required>
+                                        <option value="">— Selecione a Obra —</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" style="white-space:normal;">Responsável que vai fazer o remanejamento</label>
+                                    <select id="rem-sol-remetente" class="form-select">
+                                        <option value="">Selecione o responsável</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" style="white-space:normal;">Quem vai receber (responsável de destino)</label>
+                                    <select id="rem-sol-destinatario" class="form-select">
+                                        <option value="">Selecione o responsável</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Obra de Destino</label>
+                                    <select id="rem-sol-obra-destino" class="form-select">
+                                        <option value="">— Selecione a Obra —</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <label class="form-label" style="display:block;margin-bottom:0.5rem;">Ferramentas deste remanejamento</label>
+                            <div id="rem-sol-campo-bipagem" style="margin-bottom:0.8rem;"></div>
+
+                            <label class="form-label" style="display:block;margin-bottom:0.4rem;">Ferramentas bipadas</label>
+                            <div style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.6rem;" id="rem-sol-itens-bipados"></div>
+
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;padding:0.3rem 0.5rem;background:var(--bg-surface);border-radius:0.3rem;">
+                                <span style="font-size:0.8rem;color:var(--text-muted);">Bipadas:</span>
+                                <span id="rem-sol-contador" style="font-weight:700;font-size:0.85rem;color:var(--primary);">0 instrumentos</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label" for="rem-sol-obs">Observações (opcional)</label>
+                                <textarea id="rem-sol-obs" class="form-input" rows="2" placeholder="Instruções para quem vai executar o remanejamento..."></textarea>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <button type="button" class="btn btn-primary" onclick="submitRemSolicitacao()">Enviar solicitação</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PASSANDO -->
+                <div id="rem-passando-form" style="display:none; max-width: 820px; margin: 0 auto;">
+                    <div class="card">
+                        <div class="card-header">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <span class="card-title">Passando Instrumento</span>
+                            </div>
+                            <span class="badge badge-info">Rastreabilidade automática</span>
+                        </div>
+                        <div class="card-body">
+                            <!-- Solicitações que um gestor mandou para este usuário
+                                 executar. Escolhida uma delas, os campos abaixo ficam
+                                 travados e a bipagem passa a aceitar só as ferramentas
+                                 definidas na solicitação. -->
+                            <div id="rem-solicitacoes-pendentes" style="margin-bottom:1rem;"></div>
+
+                            <!-- Origem, quem recebe e obra de destino são
+                                 SEMPRE somente leitura: quem define isso é o
+                                 gestor, na solicitação. Aqui eles apenas
+                                 mostram o que foi decidido — o trabalho desta
+                                 tela é bipar as ferramentas. -->
+                            <div style="font-size:0.78rem;color:var(--text-muted);border:1px dashed var(--border-color);border-radius:0.5rem;padding:0.5rem 0.7rem;margin-bottom:0.8rem;">
+                                Estes três campos são preenchidos pela solicitação do gestor e não podem ser alterados aqui.
+                            </div>
+                            <div class="form-grid" style="margin-bottom:1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Obra de Origem</label>
+                                    <select id="rem-origem" class="form-select" disabled title="Definido pelo gestor na solicitação de remanejamento.">
+                                        <option value="">— Definido pelo gestor —</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" style="white-space:normal;">Responsável (Técnico que vai receber)</label>
+                                    <select id="rem-tec-entrega" class="form-select" disabled title="Definido pelo gestor na solicitação de remanejamento.">
+                                        <option value="">— Definido pelo gestor —</option>
+                                    </select>
+                                </div>
+                                <div class="form-group form-grid-full">
+                                    <label class="form-label">Obra de Destino</label>
+                                    <select id="rem-obra-destino" class="form-select" style="width:100%;" disabled title="Definido pelo gestor na solicitação de remanejamento.">
+                                        <option value="">— Definido pelo gestor —</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Um dos dois destinos basta; com os dois, quem assume
+                                 a devolução é a O.S. escolhida. A cobrança não fica
+                                 mais como um aviso fixo na tela: ela vira alerta na
+                                 hora de confirmar a passagem (ver submitRemPassando). -->
+
+                            <label class="form-label" style="display:block;margin-bottom:0.5rem;">Bipagem de ferramenta</label>
+                            <!-- Montado por JS: o campo de digitar só existe para quem
+                                 tem a permissão "bipagem_manual" (ver remCampoBipagemHTML). -->
+                            <div id="rem-campo-bipagem" style="margin-bottom:0.8rem;"></div>
+
+                            <label class="form-label" style="display:block;margin-bottom:0.4rem;">Ferramentas bipadas</label>
+                            <div style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.6rem;" id="rem-itens-bipados"></div>
+
+                            <!-- Contador de selecionados -->
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;padding:0.3rem 0.5rem;background:var(--bg-surface);border-radius:0.3rem;">
+                                <span style="font-size:0.8rem;color:var(--text-muted);">Bipadas:</span>
+                                <span id="rem-selecionados-contador" style="font-weight:700;font-size:0.85rem;color:var(--primary);">0 instrumentos</span>
+                            </div>
+
+                            <div class="form-group" style="margin-top:1rem;">
+                                <label class="form-label" for="rem-obs">Observações (opcional)</label>
+                                <textarea id="rem-obs" class="form-input"rows="2" placeholder="Informações sobre a passagem do instrumento..."></textarea>
+                            </div>
+
+                        </div>
+                        <div class="card-footer">
+                            <button type="button" class="btn btn-primary" onclick="submitRemPassando()">Confirmar Passagem</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RECEBENDO -->
+                <div id="rem-recebendo-form" style="display:none; max-width: 820px; margin: 0 auto;">
+                    <div class="card">
+                        <div class="card-header">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <span class="card-title">Recebendo Instrumento</span>
+                            </div>
+                            <span class="badge badge-info">Pendentes para você</span>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Selecione o remanejamento que você está recebendo:</p>
+                            <div id="rem-pending-list"></div>
+                        </div>
+                    </div>
+                    <div id="rem-confirm-receipt" style="display:none; margin-top:1rem;">
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Confirmar Recebimento</span>
+                                <span class="badge badge-success">Verifique os dados</span>
+                            </div>
+                            <div class="card-body" id="rem-confirm-body"></div>
+                            <div class="card-footer">
+                                <button type="button" class="btn btn-outline" onclick="document.getElementById('rem-confirm-receipt').style.display='none'">Cancelar</button>
+                                <button type="button" class="btn btn-primary" onclick="confirmRemRecebimento()">Confirmar Recebimento</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ESTOU DEVOLVENDO -->
+                <div id="rem-devolvendo-form" style="display:none; max-width: 820px; margin: 0 auto;">
+                    <div class="card">
+                        <div class="card-header">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <span class="card-title">Devolvendo ao Almoxarifado</span>
+                            </div>
+                            <span class="badge badge-warning">Ferramentas na sua mão</span>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
+                                Estas ferramentas foram passadas para você sem uma obra de destino — a devolução
+                                ao almoxarifado é sua. A data de início é a data em que você confirmou o recebimento.
+                            </p>
+
+                            <label class="form-label" style="display:block;margin-bottom:0.5rem;">Bipagem de ferramenta</label>
+                            <div id="rem-dev-campo-bipagem" style="margin-bottom:0.9rem;"></div>
+
+                            <div id="rem-dev-lista"></div>
+                        </div>
+                        <div class="card-footer">
+                            <button type="button" class="btn btn-primary" onclick="remDevConfirmar()">Confirmar Devolução</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- HISTÓRICO -->
+                <div id="rem-historico-form" style="display:none; max-width: 900px; margin: 0 auto;">
+                    <div class="card">
+                        <div class="card-header">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <span class="card-title">Histórico de Remanejamentos</span>
+                            </div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                <select id="rem-hist-filter-user" class="form-select" style="font-size:0.8rem;padding:0.3rem 0.6rem;" onchange="renderRemHistorico()">
+                                    <option value="">Todos os responsáveis</option>
+                                </select>
+                                <select id="rem-hist-filter-period" class="form-select" style="font-size:0.8rem;padding:0.3rem 0.6rem;" onchange="document.getElementById('rem-hist-filter-date').value=''; renderRemHistorico()">
+                                    <option value="todos">Todos os períodos</option>
+                                    <option value="semana">Última semana</option>
+                                    <option value="mes">Último mês</option>
+                                </select>
+                                <input type="date" id="rem-hist-filter-date" class="form-input" style="font-size:0.8rem;padding:0.3rem 0.6rem;width:auto;" onchange="document.getElementById('rem-hist-filter-period').value='todos'; renderRemHistorico()"title="Filtrar por dia específico">
+                                <button class="btn btn-outline btn-sm" onclick="document.getElementById('rem-hist-filter-user').value='';document.getElementById('rem-hist-filter-period').value='todos';document.getElementById('rem-hist-filter-date').value='';renderRemHistorico();" style="font-size:0.7rem;">Limpar filtros</button>
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div id="rem-historico-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CALIBRAÇÃO -->
+            <section id="calibracao-tab" class="tab-content">
+                
+<div id="calsub-calibracao">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.75rem;">
+                    <span class="card-title" style="font-size:1.15rem;font-weight:800;color:var(--text-main);">Calibração</span>
+                </div>
+                
+                <!-- LEGENDA DE CORES -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;padding:0.75rem 1rem;background:var(--bg-surface);border-radius:0.5rem;border:1px solid var(--border-color);margin-bottom:1rem;">
+                    <span style="font-weight:600;font-size:0.85rem;color:var(--text-main);">Legenda:</span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#22c55e;"></span>
+                        OK (≥ 30 dias)
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#f59e0b;"></span>
+                        Alerta (15-29 dias)
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#ef4444;"></span>
+                        Vencido (&lt; 15 dias)
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#8b5cf6;"></span>
+                        Em Calibração
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#6b7280;"></span>
+                        Isenta
+                    </span>
+                </div>
+                
+                <!-- FILTROS -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;background:var(--bg-surface);padding:1rem 1.25rem;border-radius:0.75rem;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Buscar</label>
+                        <input type="text" id="cal-search" class="form-input" placeholder="Buscar por TAG, tipo..." style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;"oninput="renderCalibracaoTable()">
+                    </div>
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Status</label>
+                        <select id="cal-filter-status" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;" onchange="renderCalibracaoTable()">
+                            <option value="todos">Todos</option>
+                            <option value="vencido">Vencidos</option>
+                            <option value="alerta">Em Alerta</option>
+                            <option value="em_calibracao">Em Calibração</option>
+                            <option value="ok">Em Dia</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;align-items:center;padding-bottom:0.1rem;">
+                        <button onclick="document.getElementById('cal-search').value='';document.getElementById('cal-filter-status').value='todos';renderCalibracaoTable()" class="btn btn-outline" style="padding:0.5rem 1.25rem;border:2px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            Limpar
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- CONTADOR -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span id="cal-pagination-text" style="font-size:0.85rem;color:var(--text-muted);">Carregando...</span>
+                </div>
+                
+                <!-- CARDS -->
+                <div id="calibracao-cards-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem;padding:0 0 2rem;">
+                    <!-- Renderizado via JavaScript -->
+                </div>
+            </div>
+</section>
+            <!-- CERTIFICADOS -->
+            <section id="certificados-tab" class="tab-content">
+<div id="calsub-certificados">
+                <div class="action-bar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.75rem;">
+                    <span class="card-title" style="font-size:1.15rem;font-weight:800;color:var(--text-main);">Certificados</span>
+                    <span style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                        
+                    </span>
+                </div>
+                
+                <!-- BANNER INFORMATIVO PARA TÉCNICOS (MODO SOMENTE LEITURA) 
+                <div id="certificados-readonly-banner" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:1rem;">
+                    <p style="font-size:0.85rem;color:#92400e;margin:0;">
+                         <strong>Modo somente leitura:</strong>Você pode visualizar os certificados, mas não pode adicionar, editar ou excluir.
+                    </p>
+                </div> 
+                -->
+                <!-- LEGENDA DE CORES -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;padding:0.75rem 1rem;background:var(--bg-surface);border-radius:0.5rem;border:1px solid var(--border-color);margin-bottom:1rem;">
+                    <span style="font-weight:600;font-size:0.85rem;color:var(--text-main);">Legenda:</span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#22c55e;"></span>
+                        OK (≥ 30 dias)
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#f59e0b;"></span>
+                        Alerta (15-29 dias)
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#ef4444;"></span>
+                        Vencido (&lt; 15 dias)
+                    </span>
+                    <span style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;">
+                        <span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#8b5cf6;"></span>
+                        Sem certificado
+                    </span>
+                </div>
+                
+                <!-- FILTROS -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;background:var(--bg-surface);padding:1rem 1.25rem;border-radius:0.75rem;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Buscar</label>
+                        <input type="text" id="cert-search" class="form-input" placeholder="Buscar por TAG, tipo..." style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;"oninput="renderCertificadosTable()">
+                    </div>
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Status</label>
+                        <select id="cert-filter-status" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;" onchange="renderCertificadosTable()">
+                            <option value="todos">Todos</option>
+                            <option value="vencido">Vencidos</option>
+                            <option value="alerta">Em Alerta</option>
+                            <option value="ok">Em Dia</option>
+                            <option value="sem_certificado">Sem Certificado</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;align-items:center;padding-bottom:0.1rem;">
+                        <button onclick="document.getElementById('cert-search').value='';document.getElementById('cert-filter-status').value='todos';renderCertificadosTable()" class="btn btn-outline" style="padding:0.5rem 1.25rem;border:2px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            Limpar
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- CONTADOR -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span id="cert-pagination-text" style="font-size:0.85rem;color:var(--text-muted);">Carregando...</span>
+                </div>
+                
+                <!-- CARDS -->
+                <div id="certificados-cards-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem;padding:0 0 2rem;">
+                    <!-- Renderizado via JavaScript -->
+                </div>
+            </div>
+            
+            </section>
+
+
+            <!-- USUÁRIOS / COLABORADORES -->
+            <section id="usuarios-tab" class="tab-content">
+                <div class="action-bar" style="margin-bottom: 1.5rem;">
+                    <!-- A etiqueta "RLS Habilitado" descreve o TÍTULO (o estado do
+                         módulo), não os botões — por isso fica colada nele, e não
+                         no bloco de ações lá na direita. -->
+                    <span class="card-title" style="font-size: 1.15rem; font-weight: 800;">Gestão de Perfis & Acessos</span>
+                    <span class="badge badge-success acoes-badge-rls" style="margin-left: 0.6rem;">RLS Habilitado</span>
+                    <div class="acoes-grid-mobile acoes-grid-2">
+                        <button class="btn btn-outline" id="btn-editar-colaboradores" onclick="toggleModoEdicaoUsuarios()" style="border-color: var(--primary); color: var(--primary);">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1rem; height: 1rem; margin-right: 0.3rem;">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            Editar Colaboradores
+                        </button>
+                        <button class="btn btn-primary" onclick="openUsuarioFormModal()">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1rem; height: 1rem; margin-right: 0.3rem;">
+                                <line x1="12"y1="5"x2="12"y2="19"/>
+                                <line x1="5"y1="12"x2="19"y2="12"/>
+                            </svg>
+                            Novo Colaborador
+                        </button>
+                        <button class="btn btn-outline" data-perm="gerenciar_cargos" onclick="openCargoFormModal()" style="border-color: var(--purple); color: var(--purple);">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1rem; height: 1rem; margin-right: 0.3rem;">
+                                <line x1="12"y1="5"x2="12"y2="19"/>
+                                <line x1="5"y1="12"x2="19"y2="12"/>
+                            </svg>
+                            Adicionar Cargo
+                        </button>
+                    </div>
+                </div>
+                <div style="margin-bottom: 1rem;"></div>
+                <div class="colab-filtros">
+                    <div class="form-group">
+                        <label class="form-label" for="filtro-usuario-cargo">Filtrar por Cargo</label>
+                        <select id="filtro-usuario-cargo" class="form-select" onchange="renderUsuariosTable('usuarios-tbody')">
+                            <option value="">— Todos os Cargos —</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-outline" onclick="limparFiltroUsuarios()" style="border-color: var(--border-color); color: var(--text-muted);">Limpar</button>
+                    </div>
+                    <span id="usuarios-contador" style="font-size:0.8rem;color:var(--text-muted);margin-left:auto;"></span>
+                </div>
+                <div class="card">
+                    <div class="card-body" style="padding: 0;">
+                        <div class="table-responsive">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Nome Completo</th>
+                                        <th>E-mail Corporativo</th>
+                                        <th>Função / Escopo</th>
+                                        <th>Acessos Módulos</th>
+                                        <th>Status Conta</th>
+                                        <th style="text-align: center;">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usuarios-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CLIENTES -->
+            <section id="clientes-tab" class="tab-content">
+                <!-- BARRA DE AÇÃO SUPERIOR -->
+                <div class="action-bar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.75rem;">
+                    <span class="card-title" style="font-size:1.15rem;font-weight:800;color:var(--text-main);">Clientes</span>
+                    <button class="btn btn-primary" onclick="openClienteFormModal()" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 1.25rem;border:none;border-radius:0.5rem;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.9rem;">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2.5" style="width:1rem;height:1rem;"><path d="M12 5v14M5 12h14"/></svg>
+                        Novo Cliente
+                    </button>
+                </div>
+
+                <!-- FILTROS -->
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;background:var(--bg-surface);padding:1rem 1.25rem;border-radius:0.75rem;border:1px solid var(--border-color);margin-bottom:1.5rem;">
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">UF (Estado)</label>
+                        <select id="filtro-cli-uf" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);font-size:0.9rem;" onchange="popularFiltroCidades(this.value)">
+                            <option value="">— Todos os Estados —</option>
+                            <!-- Os estados serão populados via JavaScript -->
+                        </select>
+                    </div>
+                    <div style="flex:1;min-width:150px;">
+                        <label class="form-label" style="display:block;font-size:0.8rem;font-weight:600;color:var(--text-main);margin-bottom:0.25rem;">Cidade</label>
+                        <select id="filtro-cli-cidade" class="form-select" style="width:100%;padding:0.5rem 0.8rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-muted);font-size:0.9rem;"disabled onchange="aplicarFiltroClientes()">
+                            <option value="">— Selecione o Estado primeiro —</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;align-items:center;padding-bottom:0.1rem;">
+                        <button onclick="aplicarFiltroClientes()" class="btn btn-primary" style="padding:0.5rem 1.25rem;border:none;border-radius:0.5rem;background:var(--primary);color:white;cursor:pointer;font-weight:600;font-size:0.85rem;display:flex;align-items:center;gap:0.4rem;">
+                            <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width:0.9rem;height:0.9rem;"><polyline points="22 3 15 10 22 21"/><polyline points="2 21 9 10 2 3"/></svg>
+                            Filtrar
+                        </button>
+                        <button onclick="limparFiltroClientes()" class="btn btn-outline" style="padding:0.5rem 1.25rem;border:2px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);cursor:pointer;font-weight:600;font-size:0.85rem;">
+                            Limpar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- CONTADOR -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                    <span id="clientes-contador" style="font-size:0.85rem;color:var(--text-muted);">Carregando...</span>
+                </div>
+
+                <!-- GRID DE CLIENTES -->
+                <div id="clientes-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0.65rem;padding:0 0 2rem;"></div>
+            </section>
+
+            <!-- DASHBOARD POWERBI -->
+            <section id="dashboard-powerbi-tab" class="tab-content">
+                <div class="pbi-wrap" id="pbi-root"></div>
+            </section>
+            <!-- LOGS DE ATIVIDADE -->
+            <section id="logs-tab" class="tab-content">
+                <div class="logs-wrap" id="logs-root"></div>
+            </section>
+        </div>
+    </main>
+
+    <!-- ============================================================ -->
+    <!-- MODAIS -->
+    <!-- ============================================================ -->
+
+    <!-- Instrument Detail Modal: gerado dinamicamente por openInstrumentDetail() em almoxarife.js -->
+
+    <!-- OS Detail Modal -->
+    <div class="modal-overlay" id="os-detail-modal">
+        <div class="modal-container" style="max-width: 700px;">
+            <div class="modal-header">
+                <div><span class="modal-title" id="os-detail-id" style="color: var(--primary);"></span></div>
+                <button class="modal-close" onclick="closeModal('os-detail-modal')">
+                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1.25rem; height: 1.25rem;"><line x1="18"y1="6"x2="6"y2="18"></line><line x1="6"y1="6"x2="18"y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="os-detail-ring-container" style="margin-bottom:1.1rem;padding-bottom:1.1rem;border-bottom:1px solid var(--border-color);"></div>
+                <div class="instrument-detail-grid" style="margin-bottom: 1.25rem;">
+                    <div class="instrument-detail-field" style="grid-column: span 2;"><span class="instrument-detail-label">Obra</span><span class="instrument-detail-value" id="os-detail-obra" style="color: var(--primary); font-weight: 800;">—</span></div>
+                    <div class="instrument-detail-field"><span class="instrument-detail-label">Responsável</span><span class="instrument-detail-value" id="os-detail-supervisor">—</span></div>
+                    <div class="instrument-detail-field"><span class="instrument-detail-label">Data de Início</span><span class="instrument-detail-value" id="os-detail-start">—</span></div>
+                    <div class="instrument-detail-field"><span class="instrument-detail-label">Data de Término</span><span class="instrument-detail-value" id="os-detail-end">—</span></div>
+                    <div class="instrument-detail-field"><span class="instrument-detail-label">Status</span><span class="instrument-detail-value" id="os-detail-status">—</span></div>
+                    <div class="instrument-detail-field"><span class="instrument-detail-label">Observações</span><span class="instrument-detail-value" id="os-detail-obs" style="white-space: pre-wrap;">—</span></div>
+                </div>
+                
+                <h4 style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.75rem; letter-spacing: 0.05em;">Instrumentos Solicitados</h4>
+                <div class="table-responsive">
+                    <table>
+                        <thead><tr><th>Instrumento</th><th>Qtd.</th><th>TAG</th><th id="os-detail-action-col-header" style="display:none;">Ação</th></tr></thead>
+                        <tbody id="os-detail-items-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="os-detail-add-item-row" style="display:none; margin-top: 0.75rem; padding: 0.75rem; background: var(--bg-main); border: 1px dashed var(--border-color); border-radius: 0.5rem; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <select id="os-detail-add-item-tipo" class="form-select" style="flex:1; min-width:180px; font-size:0.82rem;"></select>
+                    <input type="number" id="os-detail-add-item-qtd" class="form-input"min="1" value="1" style="width:70px; font-size:0.82rem;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="addOsDetailItem()">+ Adicionar Instrumento</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('os-detail-modal')">Fechar</button>
+                <button type="button" class="btn btn-outline" id="os-detail-print-btn" style="display:none;color:var(--text-main);">
+                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width:0.85rem;height:0.85rem;margin-right:0.3rem;vertical-align:middle;"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6"y="14"width="12"height="8"/></svg>
+                    Imprimir Lista
+                </button>
+                <button type="button" class="btn btn-primary" id="os-detail-iniciar-btn">Iniciar Separação</button>
+                <button type="button" class="btn btn-primary" id="os-detail-baixa-btn" style="display:none;background:#10b981;border-color:#10b981;">Dar Baixa (Separação)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instrument Form Modal -->
+    <div class="modal-overlay" id="instrument-modal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <span class="modal-title" id="instrument-modal-title">Cadastrar Novo Ativo</span>
+                <button class="modal-close" onclick="closeModal('instrument-modal')">
+                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1.25rem; height: 1.25rem;"><line x1="18"y1="6"x2="6"y2="18"></line><line x1="6"y1="6"x2="18"y2="18"></line></svg>
+                </button>
+            </div>
+            <form onsubmit="handleSaveInstrument(event)">
+                <input type="hidden" id="inv-id">
+                <div class="modal-body">
+                    <div class="form-grid">
+                        <div class="form-group"><label class="form-label" for="inv-tag">TAG de Identificação</label><input type="text" id="inv-tag" class="form-input" placeholder="Ex: AIF-05"required></div>
+                        <!-- O ativo da ferramenta é definido na tela de Ativo ("Acessório de ativo").
+                             Aqui ele fica apenas registrado, sem ser pedido nem obrigatório. -->
+                        <input type="hidden" id="inv-type">
+                        <div class="form-group" id="inv-ativo-info" style="display:none;">
+                            <label class="form-label">Ativo desta ferramenta</label>
+                            <div id="inv-ativo-info-texto" style="font-size:0.85rem;font-weight:700;color:var(--text-main);background:var(--bg-surface);border:1px solid var(--border-color);border-radius:0.5rem;padding:0.55rem 0.75rem;">—</div>
+                        </div>
+                        <div style="display:none;">
+                            <datalist id="inv-type-suggestions">
+                                <option value="AirFlow Meter"><option value="Alicate Amperímetro"><option value="Amostrador de Ar">
+                                <option value="Analisador de gás"><option value="Anemômetro de Pás"><option value="Balometer">
+                                <option value="Contador de Partículas"><option value="Decibelímetro"><option value="Fotômetro">
+                                <option value="Data Logger"><option value="Luxímetro"><option value="Macromanômetro">
+                                <option value="Manômetro"><option value="Micromanômetro"><option value="Medidor de Ponto de Orvalho">
+                                <option value="Rotâmetro"><option value="Termoanemômetro"><option value="Termohigrômetro">
+                                <option value="Cinto de Segurança"><option value="Maquina de Vazamento"><option value="Mochila de Campo">
+                                <option value="Parafusadeira">
+                            </datalist>
+                        </div>
+                        <div class="form-group"><label class="form-label" for="inv-maker">Fabricante</label><input type="text" id="inv-maker" class="form-input" placeholder="Ex: FLUKE, TESTO"required></div>
+                        <div class="form-group"><label class="form-label" for="inv-model">Modelo</label><input type="text" id="inv-model" class="form-input" placeholder="Ex: 435-2, TSI 9565"></div>
+                        <div class="form-group"><label class="form-label" for="inv-sn">Número de Série (S/N)</label><input type="text" id="inv-sn" class="form-input" placeholder="Ex: SN-92210"required></div>
+                        <div class="form-group"><label class="form-label" for="inv-last-cal">Data Última Calibração</label><input type="date" id="inv-last-cal" class="form-input" onchange="autoCalculateDueDate()"></div>
+                        <div class="form-group"><label class="form-label" for="inv-next-cal">Vencimento Calibração</label><input type="date" id="inv-next-cal" class="form-input"></div>
+                        <div class="form-group form-grid-full"><label class="form-label" for="inv-notes">Observações</label><textarea id="inv-notes" class="form-input"rows="2" placeholder="Descreva danos, avarias ou restrições..."></textarea></div>
+
+                        <!-- NOVOS CAMPOS: valor, comprovante, código de barras e classificação -->
+                        <div class="form-group"><label class="form-label" for="inv-valor">Valor da Ferramenta (R$)</label><input type="number" id="inv-valor" class="form-input"step="0.01"min="0" placeholder="Ex: 4500.00"></div>
+                        <div class="form-group"><label class="form-label" for="inv-data-aquisicao">Data de Aquisição</label><input type="date" id="inv-data-aquisicao" class="form-input"></div>
+                        <div class="form-group form-grid-full">
+                            <label class="form-label">Comprovante do Valor (PDF ou imagem)</label>
+                            <div class="inv-upload-dropzone" id="inv-upload-dropzone" onclick="document.getElementById('inv-comprovante').click()"
+                                 ondragover="event.preventDefault();event.stopPropagation();this.classList.add('dragover');"
+                                 ondragleave="this.classList.remove('dragover');"
+                                 ondrop="handleInvComprovanteDrop(event)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="inv-upload-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <div class="inv-upload-texto">
+                                    <strong>Clique para anexar</strong> ou arraste o arquivo aqui
+                                    <small>PDF ou imagem, até 5MB</small>
+                                </div>
+                                <button type="button" id="inv-upload-remove-btn" class="inv-upload-remove" style="display:none;" onclick="event.stopPropagation();removerInvComprovante();">Remover</button>
+                            </div>
+                            <input type="file" id="inv-comprovante" accept="application/pdf,image/*" onchange="handleInvComprovante(event)" style="display:none;">
+                            <small id="inv-comprovante-info" style="color:var(--text-muted);font-size:0.7rem;display:block;margin-top:0.3rem;">Nenhum comprovante anexado.</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="inv-codigo-barras-tag">Código de bipagem desta TAG (individual)</label>
+                            <div style="display:flex;gap:0.4rem;">
+                                <input type="text" id="inv-codigo-barras-tag" class="form-input" placeholder="Código exclusivo desta unidade — ex: CODE01" style="flex:1;">
+                                <button type="button" class="btn btn-outline" onclick="abrirScannerCampo('inv-codigo-barras-tag')" style="padding:0.4rem 0.7rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);cursor:pointer;font-size:0.75rem;font-weight:600;">Bipar</button>
+                                <button type="button" id="inv-codigo-barras-tag-salvar" class="btn btn-outline" onclick="salvarCodigoBarrasTag()" style="padding:0.4rem 0.7rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);cursor:pointer;font-size:0.75rem;font-weight:600;white-space:nowrap;display:none;">Salvar</button>
+                            </div>
+                        </div>
+                        <!-- A baia da ferramenta deixou de ser escolhida aqui: ela vem da
+                             bipagem da baia na Retirada/Devolutiva e do Remanejamento. -->
+                        <input type="hidden" id="inv-baia" value="">
+                        <!-- Dentro do modal-body, após o campo observacoes -->
+                        <div class="form-group form-grid-full">
+                            <label class="form-label" for="inv-sigla">Sigla (opcional)</label>
+                            <input type="text" id="inv-sigla" class="form-input" placeholder="Ex: AIF" style="text-transform: uppercase;">
+                        </div>
+                        <div class="form-group form-grid-full">
+                            <label class="form-label" for="inv-classificacao">Classificação da Lista</label>
+                            <div id="inv-classificacao-list" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.4rem;flex-wrap:wrap;">
+                                <button type="button" onclick="addClassRow()" class="btn btn-outline" style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.35rem 0.7rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);font-size:0.78rem;font-weight:600;cursor:pointer;">
+                                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width:0.9rem;height:0.9rem;"><line x1="12"y1="5"x2="12"y2="19"></line><line x1="5"y1="12"x2="19"y2="12"></line></svg>
+                                    Adicionar classificação
+                                </button>
+                                <button type="button" onclick="usarPadraoAtivoClassificacao()" class="btn btn-outline" style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.35rem 0.7rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);font-size:0.78rem;font-weight:600;cursor:pointer;">
+                                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width:0.9rem;height:0.9rem;"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                                    Usar padrão do ativo
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group form-grid-full" id="inv-historico-section" style="display:none;">
+                            <label class="form-label">Rastreabilidade / Histórico</label>
+                            <div id="inv-historico-list" style="border:1px solid var(--border-color);border-radius:0.5rem;padding:0.3rem;max-height:220px;overflow:auto;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('instrument-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Ativo</button>
+                </div>
+            </form>
+        </div>
+
+    </div>
+
+    <!-- Send Calibration Modal -->
+    <div class="modal-overlay" id="send-calibration-modal">
+        <div class="modal-container" style="max-width: 450px;">
+            <div class="modal-header">
+                <span class="modal-title">Enviar para Calibração Externa</span>
+                <button class="modal-close" onclick="closeModal('send-calibration-modal')">
+                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1.25rem; height: 1.25rem;"><line x1="18"y1="6"x2="6"y2="18"></line><line x1="6"y1="6"x2="18"y2="18"></line></svg>
+                </button>
+            </div>
+            <form onsubmit="handleSendCalibrationSubmit(event)">
+                <input type="hidden" id="cal-send-id">
+                <div class="modal-body">
+                    <div class="form-group"><label class="form-label">Instrumento / TAG</label><input type="text" id="cal-send-tag" class="form-input" style="opacity: 0.75;"readonly></div>
+                    <div class="form-group"><label class="form-label" for="cal-send-lab">Laboratório Credenciado</label><input type="text" id="cal-send-lab" class="form-input" placeholder="Ex: Escala, Grupo PWM..."required></div>
+                    <div class="form-group"><label class="form-label">Data de Envio</label><input type="date" id="cal-send-date" class="form-input" onchange="calcSendReturnDate()"></div>
+                    <div class="form-group">
+                        <label class="form-label">Dias Úteis Previstos</label>
+                        <div style="display:flex;gap:0.5rem;align-items:center;">
+                            <input type="number" id="cal-send-business-days" class="form-input" placeholder="Ex: 15"min="1"max="90" style="width:110px;"oninput="calcSendReturnDate()">
+                            <span style="font-size:0.78rem;color:var(--text-muted);">dias úteis</span>
+                        </div>
+                    </div>
+                    <div class="form-group"><label class="form-label" for="cal-send-return">Data Prevista de Retorno</label><input type="date" id="cal-send-return" class="form-input"><p id="cal-send-return-label" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;"></p></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('send-calibration-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar Despacho</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Return Calibration Modal -->
+    <div class="modal-overlay" id="return-calibration-modal">
+        <div class="modal-container" style="max-width: 450px;">
+            <div class="modal-header">
+                <span class="modal-title">Registrar Retorno de Calibração</span>
+                <button class="modal-close" onclick="closeModal('return-calibration-modal')">
+                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2" style="width: 1.25rem; height: 1.25rem;"><line x1="18"y1="6"x2="6"y2="18"></line><line x1="6"y1="6"x2="18"y2="18"></line></svg>
+                </button>
+            </div>
+            <form onsubmit="handleReturnCalibrationSubmit(event)">
+                <input type="hidden" id="cal-return-id">
+                <div class="modal-body">
+                    <div class="form-group"><label class="form-label">Instrumento / TAG</label><input type="text" id="cal-return-tag" class="form-input" style="opacity: 0.75;"readonly></div>
+                    <div class="form-group"><label class="form-label" for="cal-return-date">Data da Calibração Realizada</label><input type="date" id="cal-return-date" class="form-input" onchange="autoCalculateReturnDueDate()"required></div>
+                    <div class="form-group"><label class="form-label" for="cal-return-due">Nova Data de Vencimento</label><input type="date" id="cal-return-due" class="form-input"required></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('return-calibration-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn-success">Registrar e Liberar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- JavaScript -->
+    <!-- jsPDF e jsPDF-autoTable NÃO entram aqui: são ~400 KB que só fazem
+         sentido para quem gera PDF. Eles são baixados no primeiro clique em
+         "Ver" / "Baixar OS" (ver osPdfCarregarBiblioteca em os-pdf.js). -->
+    <script src="/lwn-push.js"></script>
+    <script src="/almoxarife/ui-comuns.js"></script>
+    <script src="/almoxarife/almoxarife.js"></script>
+    <script src="/almoxarife/powerbi.js"></script>
+    <script src="/almoxarife/manutencao.js"></script>
+    <script src="/almoxarife/logs.js"></script>
+    <script src="/almoxarife/os-pdf.js"></script>
+    <script src="/almoxarife/conferencia.js"></script>
+    <script src="/almoxarife/os-parciais.js"></script>
+    <script src="/almoxarife/aprovacao.js"></script>
+</body>
+</html>
