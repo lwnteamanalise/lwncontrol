@@ -1,10 +1,3 @@
-# Alterações feita desde 17/08 (Reunião com Willian - Diretor)
-
-Documento único: reúne tudo o que mudou de 19/08 a 25/08/2026, no lugar dos
-quinze arquivos `ALTERACOES-DATA.md` que existiam antes.
-
----
-
 ## Índice das mudanças
 
 **Fluxo da O.S.**
