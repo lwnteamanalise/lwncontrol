@@ -565,4 +565,4 @@ npm start
 
 Abre em `http://localhost:3000`. O `.env` precisa de `DATABASE_URL` e das
 chaves `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — as mesmas que estão nas
-Environment Variables da Vercel.
+Environment Variables da Vercel.....
