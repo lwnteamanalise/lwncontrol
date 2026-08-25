@@ -337,6 +337,3 @@ enviadas na mesma solicitação compartilham esse id, e é ele que junta as linh
 num cartão só na tela.
 
 ---
-
-Para o registro detalhado do que mudou e por quê, veja
-[ALTERACOES.md](ALTERACOES.md).
