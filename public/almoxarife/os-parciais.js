@@ -928,6 +928,9 @@ async function abrirHistoricoOS(osId) {
             devolucao: 'Devolução',
             devolucao_concluida: 'Devolução concluída',
             devolucao_antecipada: 'Devolvida com antecedência',
+            prorrogacao_solicitada: 'Prorrogação solicitada',
+            prorrogacao_editada: 'Prorrogação editada na aprovação',
+            prorrogacao_rejeitada: 'Prorrogação rejeitada',
             prorrogacao: 'Prorrogação de prazo',
             retorno_parcial: 'Retorno de item retirado'
         };

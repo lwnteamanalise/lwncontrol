@@ -239,6 +239,9 @@ async function renderDevolutiva() {
     lista.style.display = 'block';
     confPararScanner();
 
+    // Quais OS já têm pedido de prorrogação em aberto (ver confBotoesDevolutiva).
+    if (typeof carregarProrrogacoesPendentes === 'function') await carregarProrrogacoesPendentes();
+
     const oss = confOSsParaDevolutiva();
     const atrasadas = oss.filter(os => confDiasAtraso(os) > 0);
     const badge = document.getElementById('devolutiva-active-badge');
@@ -367,21 +370,33 @@ function confBotoesDevolutiva(os) {
     // Histórico é leitura: aparece para todos.
     botoes.push(`<button class="btn btn-outline btn-sm" style="padding:0.35rem 0.8rem;font-size:0.76rem;"
                          title="Ver o histórico completo desta OS" onclick="abrirHistoricoOS(${os.id})">Histórico</button>`);
-    if (podeOperar('prorrogar')) {
+
+    // Com um pedido em aberto, o botão dá lugar ao aviso: um segundo pedido
+    // aprovaria duas datas diferentes para a mesma OS.
+    const pendente = typeof prorrogacaoPendenteDaOS === 'function' ? prorrogacaoPendenteDaOS(os.id) : null;
+    if (pendente) {
+        botoes.push(`<span class="badge badge-warning" style="font-size:0.72rem;padding:0.35rem 0.7rem;"
+                           title="Pedido de ${confDataBR(pendente.data_fim_solicitada)} aguardando quem tem a permissão de aceitar prorrogações">
+                         Prorrogação aguardando aprovação
+                     </span>`);
+    } else if (podeOperar('prorrogar')) {
         botoes.push(`<button class="btn btn-outline btn-sm" style="padding:0.35rem 0.8rem;font-size:0.76rem;border-color:var(--warning,#f59e0b);color:var(--warning,#f59e0b);"
-                             title="Esticar o prazo desta OS" onclick="abrirProrrogacaoOS(${os.id})">Prorrogar</button>`);
+                             title="Pedir mais prazo para esta OS — vai para aprovação" onclick="abrirProrrogacaoOS(${os.id})">Prorrogar</button>`);
     }
     return botoes.join('');
 }
 window.confBotoesDevolutiva = confBotoesDevolutiva;
 
 // ============================================================
-// PRORROGAÇÃO DE OS (Devolutiva)
+// PRORROGAÇÃO DE OS (Devolutiva) — É UM PEDIDO
 //
-// Estica o prazo de uma OS em campo. A nova data e o motivo (obrigatório)
-// ficam no histórico da OS; o status vira "Em Campo - Prorrogada" e só se
-// encerra quando a devolutiva for concluída. Passando da nova data sem
-// devolução, o Painel Geral marca a baia como "Devolução".
+// Aqui só se PEDE mais prazo: a nova data e o motivo (obrigatório) viram uma
+// solicitação, que vai para a aba "Aprovar" do Painel Geral de quem tem a
+// permissão "Aceitar prorrogação". Nada muda na OS enquanto ninguém aprova.
+//
+// Aprovado, o prazo estica: a data entra na OS, o status vira "Em Campo -
+// Prorrogada" e só se encerra quando a devolutiva for concluída. Passando da
+// nova data sem devolução, o Painel Geral marca a baia como "Devolução".
 // ============================================================
 function abrirProrrogacaoOS(osId) {
     // Mesmo portão de Editar OS / Retirada parcial / Inclusão parcial.
@@ -391,6 +406,12 @@ function abrirProrrogacaoOS(osId) {
     }
     const os = (workOrders || []).find(o => String(o.id) === String(osId));
     if (!os) { showToast('OS não encontrada.', 'danger'); return; }
+
+    const jaPendente = typeof prorrogacaoPendenteDaOS === 'function' ? prorrogacaoPendenteDaOS(os.id) : null;
+    if (jaPendente) {
+        showToast(`Esta OS já tem uma prorrogação aguardando aprovação (para ${confDataBR(jaPendente.data_fim_solicitada)}).`, 'warning');
+        return;
+    }
 
     document.getElementById('conf-prorrogar-modal')?.remove();
 
@@ -409,7 +430,7 @@ function abrirProrrogacaoOS(osId) {
         <div class="modal-container" style="max-width:500px;width:92%;margin:0 auto;background:var(--bg-card);border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
             <div class="modal-header" style="border-bottom:1px solid var(--border-color);padding:1rem 1.5rem;">
                 <span class="modal-title" style="font-size:1.05rem;font-weight:700;color:var(--text-main);">
-                    Prorrogar OS #OS-${String(os.numero_os || os.id).padStart(4, '0')}
+                    Solicitar prorrogação — OS #OS-${String(os.numero_os || os.id).padStart(4, '0')}
                 </span>
             </div>
             <div class="modal-body" style="padding:1.25rem 1.5rem;">
@@ -436,12 +457,18 @@ function abrirProrrogacaoOS(osId) {
                     <small id="conf-prorrogar-erro" style="display:none;color:var(--danger,#ef4444);font-size:0.72rem;margin-top:0.25rem;"></small>
                 </div>
 
+                <div style="margin-top:0.9rem;border-left:3px solid var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 10%, transparent);border-radius:0 0.45rem 0.45rem 0;padding:0.6rem 0.8rem;font-size:0.76rem;color:var(--text-main);">
+                    O prazo <strong>não muda agora</strong>. Este pedido vai para a aba
+                    <strong>Aprovar</strong> de quem tem a permissão de aceitar prorrogações,
+                    e a data só entra na OS depois da aprovação.
+                </div>
+
             </div>
             <div class="modal-footer" style="display:flex;gap:0.75rem;justify-content:flex-end;border-top:1px solid var(--border-color);padding:1rem 1.5rem;">
                 <button type="button" class="btn btn-outline" onclick="document.getElementById('conf-prorrogar-modal')?.remove()"
                         style="padding:0.5rem 1.1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);cursor:pointer;">Cancelar</button>
                 <button type="button" class="btn btn-primary" id="conf-prorrogar-salvar" onclick="salvarProrrogacaoOS(${os.id})"
-                        style="padding:0.5rem 1.1rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;">Confirmar prorrogação</button>
+                        style="padding:0.5rem 1.1rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;">Enviar solicitação</button>
             </div>
         </div>`;
     document.body.appendChild(modal);
@@ -463,30 +490,35 @@ async function salvarProrrogacaoOS(osId) {
     if (erro) erro.style.display = 'none';
 
     const botao = document.getElementById('conf-prorrogar-salvar');
-    if (botao) { botao.disabled = true; botao.textContent = 'Salvando...'; }
+    if (botao) { botao.disabled = true; botao.textContent = 'Enviando...'; }
 
     try {
-        const resp = await fetch(`${API_URL}/solicitacoes/${osId}/prorrogar`, {
-            method: 'PUT',
+        const usuario = confUsuario();
+        const resp = await fetch(`${API_URL}/solicitacoes/${osId}/prorrogacoes`, {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data_fim: data, motivo, responsavel: confUsuario().nome || null })
+            body: JSON.stringify({
+                data_fim: data,
+                motivo,
+                usuario: { id: usuario.id || null, nome: usuario.nome || null }
+            })
         });
         const dados = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
 
         document.getElementById('conf-prorrogar-modal')?.remove();
-        showToast(`OS prorrogada até ${confDataBR(data)}.`, 'success');
+        showToast(`Prorrogação até ${confDataBR(data)} enviada para aprovação.`, 'success');
 
-        if (typeof carregarSolicitacoes === 'function') await carregarSolicitacoes();
+        // O prazo da OS não mudou — o que mudou foi a fila de aprovação.
+        if (typeof carregarProrrogacoesPendentes === 'function') await carregarProrrogacoesPendentes();
         await renderDevolutiva();
         confAtualizarBadgesMenu();
-        if (typeof carregarQuadroBaias === 'function') await carregarQuadroBaias(true);
-        if (typeof renderizarListaOS === 'function') renderizarListaOS();
+        if (typeof atualizarBadgeAprovacao === 'function') atualizarBadgeAprovacao();
     } catch (err) {
         mostrarErro(err.message);
-        showToast('Não foi possível prorrogar: ' + err.message, 'danger');
+        showToast('Não foi possível enviar a prorrogação: ' + err.message, 'danger');
     } finally {
-        if (botao) { botao.disabled = false; botao.textContent = 'Confirmar prorrogação'; }
+        if (botao) { botao.disabled = false; botao.textContent = 'Enviar solicitação'; }
     }
 }
 window.salvarProrrogacaoOS = salvarProrrogacaoOS;
@@ -663,9 +695,11 @@ async function abrirModalConferenciaOS(osId) {
     confSepBaiasBipadas = [];
     confSepRenderBipados();
     confSepRenderBaias();
+    // O leitor físico vale para todos: sem a permissão de digitar, ele é a
+    // única entrada por teclado que o campo aceita (ver confCampoBipagemHTML).
     const campoSep = document.getElementById('conf-sep-codigo');
-    if (campoSep && !campoSep.disabled && typeof lwnObservarBipagem === 'function') {
-        lwnObservarBipagem(campoSep, (codigo) => { confSepBipar(codigo); });
+    if (campoSep && typeof lwnLigarLeitorBipagem === 'function') {
+        lwnLigarLeitorBipagem(campoSep, (codigo) => { confSepBipar(codigo); });
     }
     // Trocar uma TAG no select muda o "X de Y" e pode invalidar o que já foi
     // bipado — a bipagem daquela TAG é descartada junto.
@@ -1380,14 +1414,15 @@ function abrirConferenciaOS(osId, etapa, selecao) {
 // Leitor físico ("maquininha") e Enter: adicionam o item automaticamente,
 // sem a etapa intermediária de clicar em "Adicionar".
 function confLigarBipagemAutomatica() {
-    if (typeof lwnObservarBipagem !== 'function') return;
+    if (typeof lwnLigarLeitorBipagem !== 'function') return;
 
     // Um único campo atende ferramenta e baia (ver confBipar).
     const campo = document.getElementById('conf-codigo');
-    // Campo bloqueado (sem permissão de digitar) não recebe leitor nem foco:
-    // quem não pode digitar bipa pela câmera.
-    if (campo && !campo.disabled) {
-        lwnObservarBipagem(campo, (codigo) => { confBipar(codigo); });
+    // O campo recebe o leitor e o foco mesmo sem a permissão de DIGITAR: é o
+    // foco que faz o leitor físico escrever nele. O que for teclado à mão é
+    // descartado por lwnObservarBipagem, e no celular o teclado não abre.
+    if (campo) {
+        lwnLigarLeitorBipagem(campo, (codigo) => { confBipar(codigo); });
         setTimeout(() => campo.focus(), 120);
     }
 }
@@ -1498,12 +1533,20 @@ window.confPintarGridDaSessao = confPintarGridDaSessao;
 window.abrirConferenciaOS = abrirConferenciaOS;
 
 // ============================================================
-// CAMPO DE BIPAGEM — DIGITAR É PERMISSÃO
+// CAMPO DE BIPAGEM — DIGITAR É PERMISSÃO, BIPAR NÃO
 //
-// Sem "bipagem_manual" o campo de código fica BLOQUEADO e o botão
-// "Adicionar" nem aparece: a única forma de acrescentar uma ferramenta é
-// apontar a câmera, que já adiciona sozinha ao reconhecer o código. É a
-// mesma casca usada na Retirada, na Devolutiva e no Remanejamento.
+// Sem "bipagem_manual" o botão "Adicionar" não aparece e nada do que for
+// TECLADO À MÃO entra no campo. O que continua funcionando é a BIPAGEM: o
+// leitor físico de código de barras escreve no campo e a ferramenta é
+// adicionada sozinha, igual à câmera do celular.
+//
+// Por isso o campo fica habilitado mesmo sem a permissão: um leitor físico é
+// um teclado, e num campo `disabled`/`readonly` (como era antes) ele não
+// escrevia — quem não podia digitar também não conseguia bipar no computador.
+// Quem filtra o que é leitura e o que é digitação é lwnObservarBipagem.
+//
+// É a mesma casca usada na Separação, na Retirada, na Devolutiva e no
+// Remanejamento.
 // ============================================================
 function confPodeDigitar() {
     return typeof usuarioPodeDigitarBipagem === 'function' ? usuarioPodeDigitarBipagem() : true;
@@ -1515,17 +1558,18 @@ function confCampoBipagemHTML(idInput, idBotaoCamera, acaoAdicionar, acaoCamera)
     return `
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
             <input type="text" id="${idInput}" class="form-input"
-                   placeholder="${podeDigitar ? 'Bipe ou digite o código / TAG da ferramenta' : 'Bipagem somente por câmera'}"
+                   placeholder="${podeDigitar ? 'Bipe ou digite o código / TAG da ferramenta' : 'Bipe o código com o leitor'}"
                    autocomplete="off" autocapitalize="characters"
-                   style="flex:1;min-width:180px;${podeDigitar ? '' : 'background:var(--bg-surface);color:var(--text-muted);cursor:not-allowed;'}"
-                   ${podeDigitar ? '' : 'disabled readonly title="Você não tem permissão para digitar o código — use a câmera"'}>
+                   style="flex:1;min-width:180px;"
+                   ${podeDigitar ? '' : 'title="Digitar o código não é permitido para o seu cargo — bipe com o leitor ou use a câmera"'}>
             ${podeDigitar ? `<button class="btn btn-primary btn-sm" style="padding:0.4rem 1rem;" onclick="${acaoAdicionar}">Adicionar</button>` : ''}
             <button class="btn btn-outline btn-sm" style="padding:0.4rem 1rem;" onclick="${acaoCamera}" id="${idBotaoCamera}">Usar câmera</button>
         </div>
         ${podeDigitar ? '' : `
         <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
-            A digitação do código está bloqueada para o seu cargo. Toque em <strong>Usar câmera</strong> —
-            a ferramenta é bipada e adicionada automaticamente.
+            A <strong>digitação</strong> do código está bloqueada para o seu cargo — a bipagem, não.
+            Bipe com o <strong>leitor de código de barras</strong> ou toque em <strong>Usar câmera</strong>:
+            a ferramenta é reconhecida e adicionada automaticamente.
         </div>`}`;
 }
 window.confCampoBipagemHTML = confCampoBipagemHTML;

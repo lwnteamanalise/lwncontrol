@@ -125,6 +125,10 @@ const MODELOS = {
     concluida:    { titulo: 'OS Concluída',       corpo: 'Devolutiva finalizada — OS concluída.',         aba: 'concluidos' },
     reprovada:    { titulo: 'OS Reprovada',       corpo: 'Sua solicitação foi reprovada.',                aba: 'minhas-obras' },
     prorrogada:   { titulo: 'OS Prorrogada',      corpo: 'O prazo desta OS foi esticado.',                aba: 'devolutiva' },
+    // Prorrogar virou pedido: quem tem "Aceitar prorrogação" decide na aba
+    // "Aprovar", e quem pediu recebe a resposta.
+    prorrogacao_solicitada: { titulo: 'Aprovar Prorrogação',    corpo: 'Uma OS aguarda a sua aprovação de prorrogação.', aba: 'aprovar' },
+    prorrogacao_rejeitada:  { titulo: 'Prorrogação Rejeitada',  corpo: 'Seu pedido de prorrogação foi rejeitado.',       aba: 'devolutiva' },
     remanejamento:{ titulo: 'Receber Ferramenta', corpo: 'Nova ferramenta aguardando o seu recebimento.', aba: 'remanejamento' }
 };
 

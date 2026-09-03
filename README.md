@@ -94,8 +94,23 @@ não pode ser devolvida: ela aparece **bloqueada** na Devolutiva e impede a O.S.
 de fechar até ser bipada na Retirada.
 
 **Devolver antes do prazo** encurta a O.S.: a data de término passa a ser hoje,
-a contratada fica guardada e o motivo é obrigatório. **Prorrogar** estica o
-prazo, também com motivo.
+a contratada fica guardada e o motivo é obrigatório.
+
+**Prorrogar** estica o prazo — e é um **pedido**, não um ato. Quem está com a
+O.S. em campo informa a nova data e o motivo (obrigatório), e nada muda ainda:
+a solicitação vai para a aba **Aprovar** do Painel Geral de quem tem a
+permissão **Aceitar prorrogação**. Lá ela tem três saídas, todas com motivo e
+carimbo:
+
+| Decisão | O que acontece |
+|---|---|
+| **Aprovar** | a data pedida entra na O.S. |
+| **Editar** | entra **outra** data — o motivo da alteração é obrigatório |
+| **Rejeitar** | a O.S. mantém o prazo — o motivo da recusa é obrigatório |
+
+Enquanto o pedido está pendente, o botão "Prorrogar" some do cartão e dá lugar
+a *Prorrogação aguardando aprovação*: duas datas diferentes não podem ser
+aprovadas para a mesma O.S.
 
 ---
 
@@ -161,12 +176,18 @@ mudam o que ele pode *fazer* dentro deles:
 - **Responsável por obra** — só quem tem um cargo marcado assim pode ser
   escolhido como responsável de uma O.S. ou receber um remanejamento.
 - **Editar OS** — o portão de tudo que mexe numa O.S. já aprovada (editar,
-  excluir, prorrogar).
+  excluir, pedir prorrogação).
 - **Aprovar / Editar qualquer OS** — decidir aprovações sem administrar todas
   as O.S.
+- **Solicitar prorrogação de OS** — pedir mais prazo para uma O.S. em campo.
+- **Aceitar prorrogação** — decidir esses pedidos na aba "Aprovar": aprovar,
+  editar a data ou rejeitar. É separada de *pedir*: é essa separação que faz da
+  prorrogação uma solicitação.
 - **Solicitar Remanejamento** — abre a aba do gestor.
-- **Digitar/colar código na bipagem** — sem ela, o campo de código fica
-  bloqueado e a única entrada é a **câmera**.
+- **Digitar/colar código na bipagem** — sem ela, o botão "Adicionar" some e o
+  que for **teclado à mão** (ou colado) no campo é descartado. **Bipar continua
+  livre para todos**: o leitor físico de código de barras e a câmera reconhecem
+  a ferramenta e a adicionam sozinhos.
 - **Manutenção — apenas visualizar** — uma *restrição*: o cargo vê a aba
   inteira, mas não adiciona, edita nem exclui.
 
@@ -184,6 +205,11 @@ manutenções e calibrações — com filtro por categoria e recorte por O.S.
 
 Cada **baia** tem o seu próprio histórico: as O.S. que a usaram, entradas,
 saídas e liberações.
+
+A **prorrogação** deixa rastro nas duas pontas: quem pediu, para quando e por
+quê; quem decidiu, o que decidiu e por quê. São quatro eventos possíveis na
+linha do tempo da O.S. — *Prorrogação solicitada*, *Prorrogação de prazo*
+(aprovada), *Prorrogação editada na aprovação* e *Prorrogação rejeitada*.
 
 Cada **O.S.** gera um PDF com a lista de instrumentos, as três etapas
 (separado / conferido / devolvido) marcadas por TAG, as datas e responsáveis de
@@ -317,6 +343,7 @@ Tabelas principais:
 | `certificados` | certificados de calibração |
 | `manutencoes` | consertos abertos e concluídos |
 | `os_historico` | todo evento de uma O.S., por TAG |
+| `os_prorrogacoes` | os pedidos de mais prazo, com quem pediu, quem decidiu e por quê |
 | `baia_historico` | todo evento de uma baia |
 | `logs_atividade` | trilha de uso do sistema |
 | `configuracoes` | ajustes compartilhados entre usuários |
