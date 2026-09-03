@@ -141,8 +141,11 @@ async function renderAprovacaoOS(recarregar) {
 
     try {
         // Sempre a partir do banco: aprovação não pode trabalhar com lista velha.
-        if (recarregar !== false && typeof carregarSolicitacoes === 'function') {
-            await carregarSolicitacoes();
+        // A fila desta tela tem duas origens — OS aguardando aprovação e
+        // pedidos de prorrogação de prazo — e as duas são lidas juntas.
+        if (recarregar !== false) {
+            if (typeof carregarSolicitacoes === 'function') await carregarSolicitacoes();
+            if (typeof carregarProrrogacoesPendentes === 'function') await carregarProrrogacoesPendentes();
         }
 
         const pendentes = (typeof osAguardandoMinhaAprovacao === 'function')
@@ -190,7 +193,7 @@ async function renderAprovacaoOS(recarregar) {
                 ${decididasPorMim.map(os => aprovCardOS(os, true)).join('')}
             </div>` : '';
 
-        container.innerHTML = cabecalho + corpo + blocoAcompanhar + reprovadas;
+        container.innerHTML = cabecalho + aprovBlocoProrrogacoes() + corpo + blocoAcompanhar + reprovadas;
     } catch (err) {
         console.error('Erro ao carregar aprovações:', err);
         container.innerHTML = `
@@ -686,6 +689,9 @@ async function aprovAtualizarTelas() {
     try {
         if (typeof carregarSolicitacoes === 'function') await carregarSolicitacoes();
         if (typeof carregarBaias === 'function') await carregarBaias();
+        // Uma prorrogação decidida sai da fila; uma OS aprovada não mexe nela,
+        // mas custa uma leitura e mantém as duas listas em sincronia.
+        if (typeof carregarProrrogacoesPendentes === 'function') await carregarProrrogacoesPendentes();
     } catch (e) {
         console.warn('Decisão registrada, mas houve erro ao recarregar:', e.message);
     }
@@ -705,3 +711,301 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof atualizarBadgeAprovacao === 'function') atualizarBadgeAprovacao();
     }, 2000);
 });
+
+// ============================================================
+// PRORROGAÇÃO DE PRAZO — DECISÃO
+//
+// Prorrogar virou pedido, e o pedido cai aqui, na mesma aba "Aprovar" das OS.
+// Três saídas, todas com rastro:
+//
+//   Aprovar   -> a data pedida entra na OS
+//   Editar    -> entra OUTRA data, e o motivo da alteração é obrigatório
+//   Rejeitar  -> a OS mantém o prazo, e o motivo da recusa é obrigatório
+//
+// Quem decide precisa da permissão "Aceitar prorrogação"; sem ela o bloco nem
+// aparece. O backend confere de novo, lendo a permissão do banco — a tela
+// nunca é a única barreira.
+// ============================================================
+function aprovPodeDecidirProrrogacao() {
+    return typeof usuarioPodeAceitarProrrogacao === 'function' && usuarioPodeAceitarProrrogacao();
+}
+
+function aprovProrrogacaoPorId(id) {
+    return (window.prorrogacoesPendentes || []).find(p => String(p.id) === String(id)) || null;
+}
+
+function aprovNumeroOS(pedido) {
+    return `#OS-${String(pedido.numero_os || pedido.solicitacao_id || 0).padStart(4, '0')}`;
+}
+
+// "Término atual" é o prazo que a OS tem AGORA (vem do JOIN), não o que ela
+// tinha quando o pedido foi aberto: entre uma coisa e outra a OS pode ter sido
+// prorrogada por outro caminho, e é contra o prazo de agora que o backend
+// valida a data nova.
+function aprovTerminoAtual(p) {
+    return p.os_data_fim || p.data_fim_anterior || null;
+}
+
+// A OS pode ter sido concluída (ou cancelada) depois do pedido. Prorrogar
+// exige uma OS em campo, então nesses casos só sobra rejeitar — o backend
+// recusa a aprovação de qualquer jeito, e a tela avisa antes do clique.
+function aprovProrrogacaoForaDeCampo(p) {
+    const st = String(p.os_status || '').toLowerCase().trim();
+    return !!st && !['em_campo', 'prorrogada'].includes(st);
+}
+
+function aprovBlocoProrrogacoes() {
+    if (!aprovPodeDecidirProrrogacao()) return '';
+    const pedidos = window.prorrogacoesPendentes || [];
+    if (!pedidos.length) return '';
+
+    return `
+        <div style="margin-bottom:1.75rem;">
+            <div style="font-size:0.85rem;font-weight:800;color:var(--text-main);margin-bottom:0.2rem;">
+                Prorrogações de prazo (${pedidos.length})
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.6rem;">
+                Pedidos de mais prazo em OS que estão em campo. Enquanto você não decide, o prazo continua o que era.
+            </div>
+            ${pedidos.map(aprovCardProrrogacao).join('')}
+        </div>`;
+}
+window.aprovBlocoProrrogacoes = aprovBlocoProrrogacoes;
+
+function aprovCardProrrogacao(p) {
+    return `
+        <div class="aprov-card" id="aprov-prorrog-card-${p.id}">
+            <div class="aprov-card-topo">
+                <span style="font-weight:800;font-size:1rem;color:var(--primary);font-family:monospace;">
+                    ${aprovNumeroOS(p)}
+                </span>
+                <span class="badge badge-warning" style="font-size:0.7rem;">Prorrogação pendente</span>
+                <span style="font-size:0.72rem;color:var(--text-muted);">
+                    ${aprovData(aprovTerminoAtual(p))} → <strong style="color:var(--warning,#f59e0b);">${aprovData(p.data_fim_solicitada)}</strong>
+                </span>
+                <button class="btn btn-outline btn-sm" style="margin-left:auto;padding:0.2rem 0.65rem;font-size:0.7rem;"
+                        onclick="abrirHistoricoOS(${p.solicitacao_id})" title="Ver o histórico desta OS">Histórico</button>
+            </div>
+
+            <div class="aprov-card-grid">
+                <div><strong>Cliente:</strong> ${aprovEscapar(p.cliente || '—')}</div>
+                <div><strong>Obra:</strong> ${aprovEscapar(p.obra || p.cliente || '—')}</div>
+                <div><strong>Responsável pela obra:</strong> ${aprovEscapar(p.responsavel || '—')}</div>
+                <div><strong>Pedido por:</strong> ${aprovEscapar(p.solicitado_por || '—')}</div>
+                <div><strong>Término atual:</strong> ${aprovData(aprovTerminoAtual(p))}</div>
+                <div><strong>Novo término pedido:</strong> ${aprovData(p.data_fim_solicitada)}</div>
+                <div><strong>Pedido em:</strong> ${aprovData(p.solicitado_em)}</div>
+            </div>
+
+            <div style="padding:0 0.9rem 0.8rem;">
+                <div style="font-size:0.78rem;font-weight:700;color:var(--text-main);margin-bottom:0.3rem;">Motivo do pedido</div>
+                <div style="border:1px solid var(--border-color);border-radius:0.5rem;padding:0.5rem 0.7rem;font-size:0.8rem;color:var(--text-main);">
+                    ${aprovEscapar(p.motivo || '—')}
+                </div>
+            </div>
+
+            ${aprovProrrogacaoForaDeCampo(p) ? `
+            <div class="aprov-motivo" style="color:var(--danger,#ef4444);">
+                Esta OS não está mais em campo (${aprovEscapar(p.os_status || '—')}) — só é possível
+                <strong>rejeitar</strong> o pedido. Prorrogar exige uma OS em campo.
+            </div>` : ''}
+
+            <div class="aprov-card-rodape">
+                <button class="btn btn-outline" style="border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);"
+                        title="Recusar o pedido — a OS mantém o prazo atual"
+                        onclick="abrirRejeicaoProrrogacao(${p.id})">Rejeitar</button>
+                ${aprovProrrogacaoForaDeCampo(p) ? '' : `
+                <button class="btn btn-outline" style="border:1px solid var(--warning,#f59e0b);color:var(--warning,#f59e0b);"
+                        title="Aprovar com outra data de término"
+                        onclick="abrirEdicaoProrrogacao(${p.id})">Editar</button>
+                <button class="btn btn-primary" onclick="abrirAprovacaoProrrogacao(${p.id})">Aprovar</button>`}
+            </div>
+        </div>`;
+}
+window.aprovCardProrrogacao = aprovCardProrrogacao;
+
+// ------------------------------------------------------------
+// APROVAR (com dupla confirmação, como a aprovação de OS)
+// ------------------------------------------------------------
+function abrirAprovacaoProrrogacao(id) {
+    const p = aprovProrrogacaoPorId(id);
+    if (!p) { showToast('Solicitação não encontrada.', 'danger'); return; }
+
+    aprovAbrirModal('aprov-modal-prorrogar', 'Aprovar prorrogação', `
+        <p style="font-size:0.88rem;color:var(--text-main);margin-bottom:0.75rem;">
+            Você está aprovando a prorrogação da <strong>${aprovNumeroOS(p)}</strong>
+            de <strong>${aprovEscapar(p.cliente || '—')}</strong>.
+        </p>
+        <p style="font-size:0.85rem;color:var(--text-main);margin-bottom:0.75rem;">
+            O término passa de <strong>${aprovData(aprovTerminoAtual(p))}</strong>
+            para <strong>${aprovData(p.data_fim_solicitada)}</strong>.
+        </p>
+        <p style="font-size:0.82rem;color:var(--text-muted);">
+            Pedido por ${aprovEscapar(p.solicitado_por || '—')} — ${aprovEscapar(p.motivo || '')}
+        </p>
+    `, `
+        <button class="btn btn-outline" onclick="aprovFechar('aprov-modal-prorrogar')">Cancelar</button>
+        <button class="btn btn-primary" id="aprov-btn-prorrogar" onclick="confirmarProrrogacao(${p.id})">Sim, aprovar</button>
+    `);
+}
+window.abrirAprovacaoProrrogacao = abrirAprovacaoProrrogacao;
+
+// ------------------------------------------------------------
+// EDITAR E APROVAR — outra data, com o motivo da alteração
+//
+// Mesma ideia do "Editar e Aprovar" da OS: em vez de devolver o pedido, quem
+// decide corrige a data e aprova na mesma ação. A data pedida, a data que
+// ficou e o motivo da mudança ficam registrados.
+// ------------------------------------------------------------
+function abrirEdicaoProrrogacao(id) {
+    const p = aprovProrrogacaoPorId(id);
+    if (!p) { showToast('Solicitação não encontrada.', 'danger'); return; }
+
+    const atual = String(aprovTerminoAtual(p) || '').slice(0, 10);
+    const minimo = atual
+        ? new Date(new Date(atual + 'T00:00:00').getTime() + 86400000).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+    const pedida = String(p.data_fim_solicitada || '').slice(0, 10);
+
+    aprovAbrirModal('aprov-modal-prorrogar-editar', 'Editar e aprovar prorrogação', `
+        <p style="font-size:0.88rem;color:var(--text-main);margin-bottom:0.75rem;">
+            <strong>${aprovNumeroOS(p)}</strong> — término atual
+            <strong>${aprovData(aprovTerminoAtual(p))}</strong>, pedido para
+            <strong>${aprovData(p.data_fim_solicitada)}</strong>.
+        </p>
+
+        <label class="form-label" for="aprov-prorrog-data" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.25rem;">
+            Data de término aprovada <span style="color:var(--danger,#ef4444);">*</span>
+        </label>
+        <input type="date" id="aprov-prorrog-data" class="form-input" min="${minimo}" value="${pedida}"
+               style="width:100%;font-size:0.85rem;margin-bottom:0.75rem;">
+
+        <label class="form-label" for="aprov-prorrog-motivo" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.25rem;">
+            Motivo da alteração <span style="color:var(--danger,#ef4444);">*</span>
+        </label>
+        <textarea id="aprov-prorrog-motivo" class="form-input" rows="3"
+                  placeholder="Por que a data pedida está sendo alterada..."
+                  style="width:100%;font-size:0.85rem;"></textarea>
+        <small style="display:block;font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
+            Mantendo a data pedida, o motivo não é necessário — use "Aprovar".
+        </small>
+    `, `
+        <button class="btn btn-outline" onclick="aprovFechar('aprov-modal-prorrogar-editar')">Cancelar</button>
+        <button class="btn btn-primary" id="aprov-btn-prorrogar-editar"
+                style="background:var(--warning,#f59e0b);border-color:var(--warning,#f59e0b);"
+                onclick="confirmarEdicaoProrrogacao(${p.id})">Salvar e aprovar</button>
+    `);
+
+    setTimeout(() => document.getElementById('aprov-prorrog-data')?.focus(), 60);
+}
+window.abrirEdicaoProrrogacao = abrirEdicaoProrrogacao;
+
+// ------------------------------------------------------------
+// REJEITAR (motivo obrigatório)
+// ------------------------------------------------------------
+function abrirRejeicaoProrrogacao(id) {
+    const p = aprovProrrogacaoPorId(id);
+    if (!p) { showToast('Solicitação não encontrada.', 'danger'); return; }
+
+    aprovAbrirModal('aprov-modal-prorrogar-rejeitar', 'Rejeitar prorrogação', `
+        <p style="font-size:0.88rem;color:var(--text-main);margin-bottom:0.75rem;">
+            Você está rejeitando a prorrogação da <strong>${aprovNumeroOS(p)}</strong>.
+            A OS mantém o término de <strong>${aprovData(aprovTerminoAtual(p))}</strong>.
+        </p>
+        <label class="form-label" for="aprov-prorrog-motivo-rejeicao" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.25rem;">
+            Motivo da rejeição <span style="color:var(--danger,#ef4444);">*</span>
+        </label>
+        <textarea id="aprov-prorrog-motivo-rejeicao" class="form-input" rows="3" required
+                  placeholder="Explique por que o prazo não será esticado..."
+                  style="width:100%;font-size:0.85rem;"
+                  oninput="document.getElementById('aprov-btn-prorrogar-rejeitar').disabled = this.value.trim().length < 3;"></textarea>
+    `, `
+        <button class="btn btn-outline" onclick="aprovFechar('aprov-modal-prorrogar-rejeitar')">Cancelar</button>
+        <button class="btn btn-primary" id="aprov-btn-prorrogar-rejeitar" disabled
+                style="background:var(--danger,#ef4444);border-color:var(--danger,#ef4444);"
+                onclick="confirmarRejeicaoProrrogacao(${p.id})">Rejeitar prorrogação</button>
+    `);
+
+    setTimeout(() => document.getElementById('aprov-prorrog-motivo-rejeicao')?.focus(), 60);
+}
+window.abrirRejeicaoProrrogacao = abrirRejeicaoProrrogacao;
+
+// ------------------------------------------------------------
+// AS TRÊS DECISÕES
+// ------------------------------------------------------------
+async function aprovDecidirProrrogacao(id, rota, corpo, botaoId, rotuloBotao, mensagemOk, modalId) {
+    const btn = document.getElementById(botaoId);
+    const rotuloOcupado = rota === 'rejeitar' ? 'Rejeitando...' : 'Aprovando...';
+    if (btn) { btn.disabled = true; btn.textContent = rotuloOcupado; }
+
+    try {
+        const resp = await fetch(`${API_URL}/prorrogacoes/${id}/${rota}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({ usuario: aprovPayloadUsuario() }, corpo || {}))
+        });
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+
+        aprovFechar(modalId);
+        showToast(mensagemOk, 'success');
+        await aprovAtualizarTelas();
+    } catch (err) {
+        showToast('Não foi possível concluir: ' + err.message, 'danger');
+        if (btn) { btn.disabled = false; btn.textContent = rotuloBotao; }
+    }
+}
+
+async function confirmarProrrogacao(id) {
+    const p = aprovProrrogacaoPorId(id);
+    const data = p ? aprovData(p.data_fim_solicitada) : '';
+    await aprovDecidirProrrogacao(
+        id, 'aprovar', {}, 'aprov-btn-prorrogar', 'Sim, aprovar',
+        `Prorrogação aprovada${data ? ` — novo término ${data}` : ''}.`,
+        'aprov-modal-prorrogar'
+    );
+}
+window.confirmarProrrogacao = confirmarProrrogacao;
+
+async function confirmarEdicaoProrrogacao(id) {
+    const data = String(document.getElementById('aprov-prorrog-data')?.value || '').slice(0, 10);
+    const motivo = String(document.getElementById('aprov-prorrog-motivo')?.value || '').trim();
+    const p = aprovProrrogacaoPorId(id);
+    const pedida = String(p?.data_fim_solicitada || '').slice(0, 10);
+
+    if (!data) { showToast('Informe a data de término aprovada.', 'danger'); return; }
+    // Mudou a data pedida? Então o porquê é obrigatório — é o que dá rastro
+    // à edição, do mesmo jeito que o motivo dá rastro à rejeição.
+    if (data !== pedida && motivo.length < 3) {
+        showToast('Informe o motivo da alteração da data.', 'danger');
+        document.getElementById('aprov-prorrog-motivo')?.focus();
+        return;
+    }
+
+    await aprovDecidirProrrogacao(
+        id, 'aprovar', { data_fim: data, motivo_decisao: motivo },
+        'aprov-btn-prorrogar-editar', 'Salvar e aprovar',
+        data === pedida
+            ? 'Prorrogação aprovada.'
+            : `Prorrogação aprovada com a data alterada para ${(typeof formatDate === 'function') ? formatDate(data) : data}.`,
+        'aprov-modal-prorrogar-editar'
+    );
+}
+window.confirmarEdicaoProrrogacao = confirmarEdicaoProrrogacao;
+
+async function confirmarRejeicaoProrrogacao(id) {
+    const motivo = String(document.getElementById('aprov-prorrog-motivo-rejeicao')?.value || '').trim();
+    if (motivo.length < 3) {
+        showToast('Informe o motivo da rejeição.', 'danger');
+        document.getElementById('aprov-prorrog-motivo-rejeicao')?.focus();
+        return;
+    }
+
+    await aprovDecidirProrrogacao(
+        id, 'rejeitar', { motivo },
+        'aprov-btn-prorrogar-rejeitar', 'Rejeitar prorrogação',
+        'Prorrogação rejeitada — o motivo ficou registrado.',
+        'aprov-modal-prorrogar-rejeitar'
+    );
+}
+window.confirmarRejeicaoProrrogacao = confirmarRejeicaoProrrogacao;

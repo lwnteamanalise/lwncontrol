@@ -239,15 +239,20 @@ const PERMISSOES_MODULOS = [
     // próprio fluxo passou a aceitar levar e devolver em partes. As chaves
     // continuam existindo em bancos antigos — só não são mais configuráveis.
     ['devolutiva', 'Devolutiva de OS'],
-    // Esticar o prazo de uma OS em campo. Fica no mesmo pacote de "mexer na
-    // OS" que Editar / Inclusão parcial / Retirada parcial.
-    ['prorrogar_os', 'Prorrogar OS (esticar o prazo)'],
+    // PEDIR a prorrogação: quem tem esta permissão vê o botão "Prorrogar" na
+    // Devolutiva, informa a nova data e o motivo — e isso vira uma solicitação.
+    // Fica no mesmo pacote de "mexer na OS" que Editar / operações parciais.
+    ['prorrogar_os', 'Solicitar prorrogação de OS (pedir mais prazo)'],
+    // DECIDIR a prorrogação: os pedidos caem na aba "Aprovar" do Painel Geral,
+    // com Aprovar, Editar (outra data, com motivo) e Rejeitar (com motivo).
+    ['aceitar_prorrogacao', 'Aceitar prorrogação (aprovar, editar ou rejeitar o pedido)'],
     // Abre a aba "Solicitar remanejamento": o gestor monta o remanejamento
     // inteiro e manda para o responsável apenas executar.
     ['solicitar_remanejamento', 'Solicitar Remanejamento (gestor)'],
-    // Sem ela o campo de código da bipagem fica BLOQUEADO e o botão
-    // "Adicionar" some: a bipagem passa a ser só por câmera.
-    ['bipagem_manual', 'Digitar/colar código na bipagem (sem câmera)'],
+    // Sem ela o botão "Adicionar" some e o que for TECLADO À MÃO (ou colado)
+    // no campo é descartado. BIPAR continua liberado para todo mundo: o
+    // leitor físico de código de barras e a câmera adicionam sozinhos.
+    ['bipagem_manual', 'Digitar/colar código na bipagem (o leitor e a câmera continuam livres)'],
     ['concluidos', 'OS Concluídas'],
     ['certificados', 'Certificados'],
     ['baias', 'Localização'],
@@ -323,7 +328,10 @@ const PERMISSOES_HERDADAS = [
     ['solicitar_remanejamento', ['gerenciar_os']],
     // Digitar o código na bipagem era o comportamento de todo mundo antes
     // desta permissão existir — quem já bipava continua podendo digitar.
-    ['bipagem_manual', ['separar_tags', 'gerenciar_os']]
+    ['bipagem_manual', ['separar_tags', 'gerenciar_os']],
+    // Prorrogar era um ato direto: quem já podia prorrogar continua decidindo
+    // (agora aprovando o pedido), para nenhuma OS ficar sem quem aceite.
+    ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']]
 ];
 
 function aplicarPermissoesHerdadas(lista) {
@@ -936,8 +944,20 @@ function usuarioPodeOperarOS(acao) {
 }
 window.usuarioPodeOperarOS = usuarioPodeOperarOS;
 
-// A bipagem por DIGITAÇÃO é privilégio: sem ela o campo de código fica
-// bloqueado e o botão "Adicionar" some — só a câmera adiciona ferramenta.
+// Quem DECIDE uma prorrogação. É uma permissão sozinha, fora do pacote de
+// "mexer na OS": pedir mais prazo (`prorrogar_os`) e aceitar o pedido são
+// papéis diferentes, e é justamente essa separação que faz da prorrogação uma
+// solicitação. O backend confere de novo, lendo a permissão do banco.
+function usuarioPodeAceitarProrrogacao() {
+    if (typeof usuarioTemPermissao !== 'function') return false;
+    return usuarioTemPermissao('aceitar_prorrogacao');
+}
+window.usuarioPodeAceitarProrrogacao = usuarioPodeAceitarProrrogacao;
+
+// DIGITAR o código é privilégio; BIPAR não. Sem esta permissão o botão
+// "Adicionar" some e o que for teclado à mão no campo é descartado — mas o
+// leitor físico de código de barras e a câmera continuam adicionando sozinhos
+// (ver lwnObservarBipagem, modo "somenteLeitor").
 function usuarioPodeDigitarBipagem() {
     if (typeof usuarioTemPermissao !== 'function') return true;
     return usuarioTemPermissao('bipagem_manual');
@@ -1009,6 +1029,51 @@ function osAguardandoMinhaAprovacao(lista) {
     );
 }
 window.osAguardandoMinhaAprovacao = osAguardandoMinhaAprovacao;
+
+// ============================================================
+// SOLICITAÇÕES DE PRORROGAÇÃO PENDENTES
+//
+// Prorrogar virou um PEDIDO, e a mesma lista serve às duas telas: a
+// Devolutiva usa para saber qual OS já tem pedido em aberto (e trocar o botão
+// "Prorrogar" pelo aviso "aguardando aprovação"), e a aba "Aprovar" usa para
+// montar os cartões de decisão.
+// ============================================================
+let prorrogacoesPendentes = [];
+window.prorrogacoesPendentes = prorrogacoesPendentes;
+
+// A abertura da tela chama renderDashboard várias vezes, e cada chamada pedia
+// a lista de novo. Mesma solução do quadro de baias: quem chega enquanto uma
+// leitura está no ar aguarda a mesma promessa, em vez de abrir outra.
+let prorrogacoesCarregando = null;
+
+async function carregarProrrogacoesPendentes() {
+    if (prorrogacoesCarregando) return prorrogacoesCarregando;
+
+    prorrogacoesCarregando = (async () => {
+        try {
+            const resp = await fetch(`${API_URL}/prorrogacoes?status=pendente`, { cache: 'no-store' });
+            if (!resp.ok) throw new Error(`Erro ${resp.status}`);
+            const lista = await resp.json();
+            prorrogacoesPendentes = Array.isArray(lista) ? lista : [];
+        } catch (err) {
+            console.warn('Não foi possível carregar as prorrogações pendentes:', err.message);
+            prorrogacoesPendentes = [];
+        } finally {
+            prorrogacoesCarregando = null;
+        }
+        window.prorrogacoesPendentes = prorrogacoesPendentes;
+        return prorrogacoesPendentes;
+    })();
+
+    return prorrogacoesCarregando;
+}
+window.carregarProrrogacoesPendentes = carregarProrrogacoesPendentes;
+
+function prorrogacaoPendenteDaOS(osId) {
+    return (window.prorrogacoesPendentes || [])
+        .find(p => String(p.solicitacao_id) === String(osId)) || null;
+}
+window.prorrogacaoPendenteDaOS = prorrogacaoPendenteDaOS;
 
 // O CARGO deste usuário já foi configurado à mão na tela de Cargos?
 //
@@ -2409,6 +2474,15 @@ function renderDashboard() {
     // vêm de /api/painel/baias — uma chamada só, já com a OS de cada baia.
     // ============================================================
     if (typeof atualizarBadgeAprovacao === 'function') atualizarBadgeAprovacao();
+    // Os pedidos de prorrogação também contam no badge "Aprovar", e o Painel
+    // Geral é a primeira tela: sem esta leitura o número só apareceria depois
+    // de abrir a aba. Não bloqueia a renderização — o badge se atualiza quando
+    // a resposta chega.
+    if (typeof carregarProrrogacoesPendentes === 'function') {
+        carregarProrrogacoesPendentes().then(() => {
+            if (typeof atualizarBadgeAprovacao === 'function') atualizarBadgeAprovacao();
+        });
+    }
     carregarQuadroBaias();
 
     const hoje = new Date();
@@ -3552,12 +3626,18 @@ function abrirPainelOS(painel, forcar) {
 }
 window.abrirPainelOS = abrirPainelOS;
 
-// Contador de OS esperando a decisão deste usuário, no botão "Aprovar".
+// Contador do que espera a decisão deste usuário no botão "Aprovar": as OS
+// aguardando aprovação MAIS os pedidos de prorrogação — estes só para quem tem
+// a permissão de aceitá-los.
 function atualizarBadgeAprovacao() {
     const badge = document.getElementById('painel-badge-aprovar');
     if (!badge) return;
-    const total = (typeof osAguardandoMinhaAprovacao === 'function')
+    const osPendentes = (typeof osAguardandoMinhaAprovacao === 'function')
         ? osAguardandoMinhaAprovacao().length : 0;
+    const podeProrrogacao = typeof usuarioPodeAceitarProrrogacao === 'function'
+        && usuarioPodeAceitarProrrogacao();
+    const prorrogacoes = podeProrrogacao ? (window.prorrogacoesPendentes || []).length : 0;
+    const total = osPendentes + prorrogacoes;
     badge.textContent = total;
     badge.style.display = total ? 'inline-flex' : 'none';
 }
@@ -8227,7 +8307,7 @@ function osEditResponsavelOptionsHTML(atual) {
     lista.forEach(u => {
         const nome = String(u.nome);
         if (nome === atual) encontrado = true;
-        html += `<option value="${osEditEscAttr(nome)}"${nome === atual ? ' selected' : ''}>${osEditEscAttr(nome)}${u.cargo ? ' — ' + osEditEscAttr(u.cargo) : ''}</option>`;
+        html += `<option value="${osEditEscAttr(nome)}"${nome === atual ? ' selected' : ''}>${osEditEscAttr(nome)}</option>`;
     });
     if (atual && !encontrado) {
         html += `<option value="${osEditEscAttr(atual)}" selected>${osEditEscAttr(atual)} (atual)</option>`;
@@ -14185,7 +14265,7 @@ function popularSelectRemanejamentoResponsavel() {
     select.innerHTML = '<option value="">Selecione o responsável</option>'
         + lista.map(u => {
             const euMesmo = usuarioAtual.nome && u.nome === usuarioAtual.nome;
-            return `<option value="${u.nome}">${u.nome}${euMesmo ? ' (você)' : (u.cargo ? ' — ' + u.cargo : '')}</option>`;
+            return `<option value="${u.nome}">${u.nome}${euMesmo ? ' (você)' : ''}</option>`;
         }).join('');
 
     if (selecionado && lista.some(u => u.nome === selecionado)) select.value = selecionado;
@@ -14278,9 +14358,13 @@ function showRemMode(mode) {
 // CAMPO DE BIPAGEM DO REMANEJAMENTO
 //
 // Mesma regra da Retirada e da Devolutiva: DIGITAR o código é permissão
-// ("bipagem_manual"). Sem ela, o campo fica bloqueado, o botão "Adicionar"
-// não existe e a única entrada é a câmera — que já adiciona sozinha ao
-// reconhecer o código.
+// ("bipagem_manual") — BIPAR não é. Sem a permissão, o botão "Adicionar" não
+// existe e o que for teclado à mão é descartado, mas o LEITOR FÍSICO continua
+// escrevendo no campo e a ferramenta entra sozinha, igual à câmera.
+//
+// O Enter não vem mais de um `onkeydown` no HTML: quem confirma a leitura é
+// lwnObservarBipagem (via remLigarLeitor), que é justamente quem sabe separar
+// leitura de digitação.
 // ============================================================
 function remPodeDigitar() {
     return typeof usuarioPodeDigitarBipagem === 'function' ? usuarioPodeDigitarBipagem() : true;
@@ -14292,29 +14376,45 @@ function remCampoBipagemHTML(idInput, nomeFuncao) {
     return `
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
             <input type="text" id="${idInput}" class="form-input"
-                   placeholder="${podeDigitar ? 'Bipe ou digite o código / TAG da ferramenta' : 'Bipagem somente por câmera'}"
+                   placeholder="${podeDigitar ? 'Bipe ou digite o código / TAG da ferramenta' : 'Bipe o código com o leitor'}"
                    autocomplete="off" autocapitalize="characters"
-                   style="flex:1;min-width:180px;${podeDigitar ? '' : 'background:var(--bg-surface);color:var(--text-muted);cursor:not-allowed;'}"
-                   ${podeDigitar
-                        ? `onkeydown="if(event.key==='Enter'){event.preventDefault();${nomeFuncao}();}"`
-                        : 'disabled readonly title="Você não tem permissão para digitar o código — use a câmera"'}>
+                   style="flex:1;min-width:180px;"
+                   ${podeDigitar ? '' : 'title="Digitar o código não é permitido para o seu cargo — bipe com o leitor ou use a câmera"'}>
             ${podeDigitar ? `<button type="button" class="btn btn-primary btn-sm" style="padding:0.4rem 1rem;" onclick="${nomeFuncao}()">Adicionar</button>` : ''}
             <button type="button" class="btn btn-outline btn-sm" style="padding:0.4rem 1rem;"
                     onclick="abrirScannerCampo('${idInput}', ${nomeFuncao})">Usar câmera</button>
         </div>
         ${podeDigitar ? '' : `
         <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
-            A digitação do código está bloqueada para o seu cargo. Toque em <strong>Usar câmera</strong> —
-            a ferramenta é bipada e adicionada automaticamente.
+            A <strong>digitação</strong> do código está bloqueada para o seu cargo — a bipagem, não.
+            Bipe com o <strong>leitor de código de barras</strong> ou toque em <strong>Usar câmera</strong>:
+            a ferramenta é reconhecida e adicionada automaticamente.
         </div>`}`;
 }
 window.remCampoBipagemHTML = remCampoBipagemHTML;
 
+// Liga o leitor físico no campo que acabou de ser montado. As funções de
+// bipagem do remanejamento leem o próprio campo, então basta chamá-las.
+function remLigarLeitor(idInput, nomeFuncao) {
+    const campo = document.getElementById(idInput);
+    if (!campo || typeof lwnLigarLeitorBipagem !== 'function') return;
+    lwnLigarLeitorBipagem(campo, () => {
+        if (typeof window[nomeFuncao] === 'function') window[nomeFuncao]();
+    });
+}
+window.remLigarLeitor = remLigarLeitor;
+
 function remMontarCampoBipagem() {
     const box = document.getElementById('rem-campo-bipagem');
-    if (box) box.innerHTML = remCampoBipagemHTML('rem-codigo', 'remBiparFerramenta');
+    if (box) {
+        box.innerHTML = remCampoBipagemHTML('rem-codigo', 'remBiparFerramenta');
+        remLigarLeitor('rem-codigo', 'remBiparFerramenta');
+    }
     const boxDev = document.getElementById('rem-dev-campo-bipagem');
-    if (boxDev) boxDev.innerHTML = remCampoBipagemHTML('rem-dev-codigo', 'remDevBipar');
+    if (boxDev) {
+        boxDev.innerHTML = remCampoBipagemHTML('rem-dev-codigo', 'remDevBipar');
+        remLigarLeitor('rem-dev-codigo', 'remDevBipar');
+    }
 }
 window.remMontarCampoBipagem = remMontarCampoBipagem;
 
@@ -14342,7 +14442,10 @@ function remSolMontarCampos() {
     remSolPopularResponsaveis('rem-sol-remetente');
     remSolPopularResponsaveis('rem-sol-destinatario');
     const box = document.getElementById('rem-sol-campo-bipagem');
-    if (box) box.innerHTML = remCampoBipagemHTML('rem-sol-codigo', 'remSolBiparFerramenta');
+    if (box) {
+        box.innerHTML = remCampoBipagemHTML('rem-sol-codigo', 'remSolBiparFerramenta');
+        remLigarLeitor('rem-sol-codigo', 'remSolBiparFerramenta');
+    }
 }
 window.remSolMontarCampos = remSolMontarCampos;
 
@@ -14359,7 +14462,7 @@ function remSolPopularResponsaveis(idSelect) {
         .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
 
     select.innerHTML = '<option value="">Selecione o responsável</option>'
-        + lista.map(u => `<option value="${u.nome}">${u.nome}${u.cargo ? ' — ' + u.cargo : ''}</option>`).join('');
+        + lista.map(u => `<option value="${u.nome}">${u.nome}</option>`).join('');
     if (selecionado && lista.some(u => u.nome === selecionado)) select.value = selecionado;
     if (!lista.length) select.innerHTML = '<option value="">Nenhum cargo marcado como "Responsável por obra"</option>';
 }
@@ -15027,7 +15130,10 @@ function abrirConfirmRecebimento(index) {
 
     remRecBipados = [];
     const campo = document.getElementById('rem-rec-campo-bipagem');
-    if (campo) campo.innerHTML = remCampoBipagemHTML('rem-rec-codigo', 'remRecBipar');
+    if (campo) {
+        campo.innerHTML = remCampoBipagemHTML('rem-rec-codigo', 'remRecBipar');
+        remLigarLeitor('rem-rec-codigo', 'remRecBipar');
+    }
     renderRemRecBipados();
 
     container.dataset.index = index;
@@ -15293,7 +15399,10 @@ async function renderRemDevolvendo() {
     // O campo de bipagem é montado por JS porque depende da permissão de
     // digitar (ver remCampoBipagemHTML).
     const box = document.getElementById('rem-dev-campo-bipagem');
-    if (box) box.innerHTML = remCampoBipagemHTML('rem-dev-codigo', 'remDevBipar');
+    if (box) {
+        box.innerHTML = remCampoBipagemHTML('rem-dev-codigo', 'remDevBipar');
+        remLigarLeitor('rem-dev-codigo', 'remDevBipar');
+    }
     renderRemDevLista();
 }
 window.renderRemDevolvendo = renderRemDevolvendo;
@@ -16779,7 +16888,7 @@ function popularSelectResponsaveis() {
         .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
 
     select.innerHTML = '<option value="">Selecione o responsável</option>' +
-        lista.map(u => `<option value="${u.nome}" data-user-id="${u.id}">${u.nome}${u.cargo ? ' — ' + u.cargo : ''}</option>`).join('');
+        lista.map(u => `<option value="${u.nome}" data-user-id="${u.id}">${u.nome}</option>`).join('');
 
     if (selecionado && lista.some(u => u.nome === selecionado)) select.value = selecionado;
 

@@ -8,7 +8,7 @@
 4b. A ferramenta remanejada aparece na lista com a obra de onde veio
 4c. "Ferramentas nesta OS": só TAGs, e o que está fora da rodada sai cortado
 5. Devolução com antecedência
-6. Prorrogar O.S.
+6. Prorrogar O.S. — agora é uma **solicitação**, com aprovar / editar / rejeitar
 7. Aprovação: "Rejeitar" virou **Editar e Aprovar**
 8. Operações parciais **removidas da tela**
 9. Excluir O.S. apaga o rastro
@@ -31,7 +31,9 @@
 
 **Acesso e permissões**
 22. Permissões por cargo, "Responsável por obra" e "Editar O.S."
-23. Digitar o código na bipagem virou permissão
+23. Digitar o código na bipagem virou permissão — **mas bipar, não**
+23b. Permissão nova: "Aceitar prorrogação"
+23c. O nome do responsável aparece **sem o cargo**
 
 **Telas, mobile e notificações**
 24. Painel Geral: Solicitar | Aprovar | Minhas Obras
@@ -218,12 +220,40 @@ o **motivo é obrigatório**. As duas datas aparecem no histórico e no PDF.
 A data da devolução é sempre **hoje**, calculada no fuso do servidor — não se
 pede mais data ao usuário.
 
-## 6. Prorrogar O.S.
+## 6. Prorrogar O.S. — agora é uma **solicitação** (03/09)
 
 Estica o prazo de uma O.S. em campo. Nova data (tem de ser depois da atual) e
 motivo obrigatório; o status vira "Em Campo · Prorrogada" e a O.S. continua na
 Devolutiva. Passando da nova data sem devolução, o Painel Geral marca a baia
 como "Devolução".
+
+**O que mudou:** prorrogar deixou de mudar a data na hora. O botão continua no
+mesmo lugar e pede as mesmas duas coisas — nova data e motivo —, mas o que sai
+dali é um **pedido**. Nada muda na O.S. enquanto ninguém decide.
+
+O pedido cai na aba **Aprovar** do Painel Geral de quem tem a permissão nova
+**"Aceitar prorrogação"** (ver 23b), num bloco próprio acima das O.S., com três
+botões:
+
+| Botão | O que faz | Motivo |
+|---|---|---|
+| **Aprovar** | a data pedida entra na O.S. | não precisa |
+| **Editar** | abre o calendário para aprovar com **outra** data | obrigatório |
+| **Rejeitar** | a O.S. mantém o prazo que já tinha | obrigatório |
+
+**Rastro nas duas pontas.** O histórico da O.S. ganhou quatro eventos —
+*Prorrogação solicitada*, *Prorrogação de prazo* (a aprovação), *Prorrogação
+editada na aprovação* e *Prorrogação rejeitada* —, cada um com quem, quando,
+qual data e por quê. A tabela `os_prorrogacoes` guarda o mesmo em colunas.
+
+**Um pedido de cada vez.** Com um pedido em aberto, o botão "Prorrogar" some do
+cartão e no lugar dele aparece *Prorrogação aguardando aprovação*: dois pedidos
+pendentes aprovariam duas datas diferentes para a mesma O.S.
+
+Quem pede é avisado da decisão por notificação; quem decide é avisado do pedido.
+A rota antiga `PUT /api/solicitacoes/:id/prorrogar` continua existindo, mas
+agora exige a permissão de aceitar — prorrogar direto virou exceção, não o
+caminho.
 
 ## 7. Aprovação: "Rejeitar" virou **Editar e Aprovar**
 
@@ -427,18 +457,61 @@ de remanejamento e nas operações parciais.
 - **"Responsável por obra"** (por cargo): só quem tem um cargo marcado assim
   pode ser escolhido como responsável de uma O.S. ou receber um remanejamento.
 - **"Editar OS"** substituiu "Ver todas as OS" e é o portão de tudo que mexe
-  numa O.S. já aprovada (editar, excluir, prorrogar).
+  numa O.S. já aprovada (editar, excluir, pedir prorrogação).
 - **Cargos** podem ser criados, renomeados e excluídos — inclusive os padrão.
 - Permissões que não ficavam salvas: corrigido.
 - Permissões criadas depois que os cargos já existiam são **herdadas** por quem
   já tinha a permissão "pai", para nada sumir da tela de quem já usava o
   módulo — mas a herança **não passa por cima do que foi desmarcado à mão**.
 
-## 23. Digitar o código na bipagem virou permissão
+## 23. Digitar o código na bipagem virou permissão — **mas bipar, não** (03/09)
 
-Sem **"Digitar/colar código na bipagem"**, o campo fica bloqueado, o botão
-"Adicionar" some e a única entrada é a câmera — que já adiciona sozinha ao
-reconhecer o código. Vale na Retirada, na Devolutiva e no Remanejamento.
+Sem **"Digitar/colar código na bipagem"**, o botão "Adicionar" some e o que for
+**teclado à mão** (ou colado) no campo é descartado na hora, com aviso. Vale na
+Separação, na Retirada, na Devolutiva e no Remanejamento.
+
+**O que mudou:** o campo deixou de ficar `disabled`. Um leitor físico de código
+de barras é um teclado — ele só escreve num campo habilitado e focado —, então
+travar o campo travava o leitor junto: quem não tinha a permissão não conseguia
+bipar de jeito nenhum no computador, só pela câmera do celular.
+
+Agora o campo fica habilitado para todos e a permissão vale no **conteúdo**:
+
+- **leitura de máquina** (rajada de teclas em menos de 35 ms, com ou sem Enter
+  no fim) → aceita, e a ferramenta entra sozinha, como no celular;
+- **digitação humana** → apagada do campo, com o aviso de que só o leitor e a
+  câmera valem para o cargo;
+- **colar** → bloqueado.
+
+No celular o campo recebe `inputmode="none"`: ele aceita o leitor, mas não abre
+o teclado da tela.
+
+## 23b. Permissão nova: "Aceitar prorrogação" (03/09)
+
+Quem **pede** mais prazo e quem **aceita** o pedido passaram a ser papéis
+diferentes — é essa separação que faz da prorrogação uma solicitação (ver 6):
+
+- **"Solicitar prorrogação de OS"** (a antiga "Prorrogar OS") — mostra o botão
+  na Devolutiva e abre o pedido;
+- **"Aceitar prorrogação"** — mostra o bloco de decisão na aba "Aprovar", com
+  aprovar, editar e rejeitar.
+
+A permissão é conferida **de novo no servidor**, lendo o cargo do banco: a tela
+nunca é a única barreira. Como ela nasce com esta versão e ninguém a tem no
+banco no dia em que sobe, vale a herança de sempre — quem já podia mexer na O.S.
+decide as prorrogações **enquanto a permissão não for configurada em cargo
+nenhum**. Salvo o primeiro cargo com ela, a herança some e vale só o que está
+marcado.
+
+## 23c. O nome do responsável aparece **sem o cargo** (03/09)
+
+Todo campo de escolha de responsável mostrava "Rinaldo Lúcio — Diretor". Agora
+mostra só **"Rinaldo Lúcio"**. Vale nos quatro lugares em que se escolhe alguém:
+Solicitação de O.S., Editar O.S., Remanejamento (quem envia e quem recebe) e
+Solicitar Remanejamento.
+
+O cargo continua mandando em **quem entra na lista** ("Responsável por obra") —
+ele só saiu do rótulo.
 
 ---
 
@@ -534,7 +607,22 @@ Tudo **idempotente**: o servidor aplica na subida (`garantirColunasExtras`,
 | `devolvido_por` / `devolvido_em` / `devolvido_estado` / `devolvido_obs` / `data_retorno` | a devolução |
 
 ### Tabelas novas
-`baia_historico`, `os_historico`, `push_subscriptions`, `configuracoes`.
+`baia_historico`, `os_historico`, `push_subscriptions`, `configuracoes`,
+`os_prorrogacoes`.
+
+`os_prorrogacoes` — um pedido de mais prazo por linha:
+
+| Coluna | Guarda |
+|---|---|
+| `data_fim_anterior` | o término da O.S. quando o pedido foi aberto |
+| `data_fim_solicitada` | o que quem pediu quer |
+| `data_fim_aprovada` | o que de fato entrou na O.S. (pode ser outra: edição) |
+| `editada` | a data aprovada é diferente da pedida |
+| `motivo` | por que se pede mais prazo (obrigatório) |
+| `motivo_decisao` | por que foi editada ou rejeitada (obrigatório nas duas) |
+| `solicitado_por` / `solicitado_em` | quem pediu |
+| `decidido_por` / `decidido_em` | quem decidiu |
+| `status` | `pendente` → `aprovada` ou `rejeitada` |
 
 ### Rotas novas
 ```
@@ -546,7 +634,11 @@ POST   /api/remanejamentos/:id/devolver    fecha a passagem
 POST   /api/remanejamentos/excluir         apaga do histórico            (novo)
 PUT    /api/solicitacoes/:id/separar       conclui a separação
 PUT    /api/solicitacoes/:id/editar-aprovar
-PUT    /api/solicitacoes/:id/prorrogar
+PUT    /api/solicitacoes/:id/prorrogar     prorroga direto (exige "Aceitar prorrogação")
+POST   /api/solicitacoes/:id/prorrogacoes abre o pedido de prorrogação   (novo)
+GET    /api/prorrogacoes?status=pendente  a fila da aba "Aprovar"        (novo)
+PUT    /api/prorrogacoes/:id/aprovar      aprova (ou edita a data)       (novo)
+PUT    /api/prorrogacoes/:id/rejeitar     rejeita, com motivo            (novo)
 GET    /api/solicitacoes/:id/historico
 GET    /api/ferramentas/:id/historico      linha do tempo unificada
 GET    /api/ferramentas/:id/baia-info

@@ -3316,6 +3316,12 @@ app.delete("/api/solicitacoes/:id", async (req, res) => {
         // Histórico da própria OS
         await pool.query("DELETE FROM os_historico WHERE solicitacao_id = $1", [id]);
 
+        // Pedidos de prorrogação desta OS: um pendente ficaria para sempre na
+        // fila da aba "Aprovar", apontando para uma OS que não existe mais.
+        try {
+            await pool.query("DELETE FROM os_prorrogacoes WHERE solicitacao_id = $1", [id]);
+        } catch (e) { /* banco antigo, ainda sem a tabela */ }
+
         // Eventos de baia originados nesta OS
         await pool.query("DELETE FROM baia_historico WHERE os_id = $1", [id]);
         if (numeroTexto) {
@@ -6331,70 +6337,506 @@ app.get("/api/solicitacoes/:id/historico", async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// PUT /api/solicitacoes/:id/prorrogar { data_fim, motivo, responsavel }
+// PUT /api/solicitacoes/:id/prorrogar { data_fim, motivo, usuario }
 //
-// Estica o prazo de uma OS que está em campo. A nova data substitui a
-// `data_fim` (é ela que manda no atraso, no quadro de baias e na Devolutiva),
-// o status passa a 'prorrogada' e o evento fica no histórico da OS com a data
-// anterior, a nova e o motivo — que é obrigatório.
+// Estica o prazo de uma OS que está em campo, DIRETO — sem passar pela fila de
+// aprovação. Por isso ela exige a permissão "Aceitar prorrogação": quem não a
+// tem abre um pedido (POST /api/solicitacoes/:id/prorrogacoes), que é o
+// caminho que o botão "Prorrogar" da tela usa.
+//
+// A nova data substitui a `data_fim` (é ela que manda no atraso, no quadro de
+// baias e na Devolutiva), o status passa a 'prorrogada' e o evento fica no
+// histórico da OS com a data anterior, a nova e o motivo — que é obrigatório.
 //
 // A prorrogação NÃO encerra nada: a OS só se conclui pela devolutiva.
 // ------------------------------------------------------------
 app.put("/api/solicitacoes/:id/prorrogar", async (req, res) => {
     try {
-        const { data_fim, motivo, responsavel } = req.body || {};
-        const novaData = String(data_fim || '').slice(0, 10);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(novaData)) {
-            return res.status(400).json({ erro: "Informe a nova data de término (AAAA-MM-DD)" });
+        const { data_fim, motivo, responsavel, usuario } = req.body || {};
+        const quem = usuario || (responsavel ? { nome: responsavel } : null);
+        if (!(await usuarioPodeAceitarProrrogacao(quem))) {
+            return res.status(403).json({
+                erro: "Prorrogar direto exige a permissão \"Aceitar prorrogação\". Abra uma solicitação de prorrogação."
+            });
         }
+
+        const novaData = String(data_fim || '').slice(0, 10);
         if (!String(motivo || '').trim()) {
             return res.status(400).json({ erro: "O motivo da prorrogação é obrigatório" });
         }
 
-        const osRes = await pool.query("SELECT * FROM solicitacoes WHERE id = $1", [req.params.id]);
-        if (!osRes.rows.length) return res.status(404).json({ erro: "OS não encontrada" });
-        const os = osRes.rows[0];
+        const check = await validarPedidoProrrogacao(req.params.id, novaData);
+        if (check.erro) return res.status(check.status).json({ erro: check.erro });
 
-        const status = String(os.status || '').toLowerCase().trim();
-        if (!['em_campo', 'prorrogada'].includes(status)) {
-            return res.status(409).json({ erro: "Só é possível prorrogar uma OS que está em campo" });
+        const aplicado = await aplicarProrrogacaoNaOS(
+            check.os, novaData, motivo, quem?.nome || null, { direta: true }
+        );
+        res.json({ os: aplicado.os, data_fim_anterior: aplicado.anterior, data_fim: novaData });
+    } catch (err) {
+        console.error("ERRO: PUT /api/solicitacoes/:id/prorrogar:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ============================================================
+// SOLICITAÇÃO DE PRORROGAÇÃO
+//
+// Prorrogar deixou de ser um ato: virou um PEDIDO. Quem está com a OS em
+// campo informa a nova data de término e o motivo, e isso vira uma
+// solicitação que aparece na aba "Aprovar" do Painel Geral para quem tem a
+// permissão "Aceitar prorrogação" (`aceitar_prorrogacao`).
+//
+//   solicitada  ->  aprovada           (a data nova entra na OS)
+//               ->  editada e aprovada (entra OUTRA data, com o motivo da edição)
+//               ->  rejeitada          (a OS não muda; o motivo fica registrado)
+//
+// Cada ponta tem nome, carimbo e motivo próprios — na tabela e no histórico
+// da OS. Enquanto o pedido está pendente, a OS não aceita um segundo: o botão
+// "Prorrogar" some e o cartão mostra "aguardando aprovação".
+// ============================================================
+const PRORROGACAO_STATUS = { PENDENTE: 'pendente', APROVADA: 'aprovada', REJEITADA: 'rejeitada' };
+
+let _prorrogacoesOk = false;
+async function garantirTabelaProrrogacoes() {
+    if (_prorrogacoesOk) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS os_prorrogacoes (
+            id SERIAL PRIMARY KEY,
+            solicitacao_id INTEGER NOT NULL,
+            numero_os VARCHAR(40),
+            data_fim_anterior DATE,
+            data_fim_solicitada DATE NOT NULL,
+            data_fim_aprovada DATE,
+            motivo TEXT NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pendente',
+            editada BOOLEAN DEFAULT FALSE,
+            solicitado_por VARCHAR(180),
+            solicitado_por_id INTEGER,
+            solicitado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            decidido_por VARCHAR(180),
+            decidido_por_id INTEGER,
+            decidido_em TIMESTAMP,
+            motivo_decisao TEXT
+        )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_prorrogacoes_os ON os_prorrogacoes (solicitacao_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_prorrogacoes_status ON os_prorrogacoes (status)`);
+    _prorrogacoesOk = true;
+}
+garantirTabelaProrrogacoes().catch(e => console.warn("AVISO: os_prorrogacoes:", e.message));
+
+// `usuarios.permissoes` foi gravada ao longo do tempo como objeto, array e
+// string JSON. Ler as três evita negar acesso a quem tem a permissão só
+// porque o formato do registro é antigo.
+function listaDePermissoes(bruto) {
+    let v = bruto;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return []; } }
+    if (Array.isArray(v)) return v.map(String);
+    if (v && typeof v === 'object') return Object.keys(v).filter(k => v[k]);
+    return [];
+}
+
+// Quem já mexia numa OS em andamento herda a permissão nova — mas só enquanto
+// ela ainda não tiver sido configurada (ver abaixo).
+const PRORROGACAO_HERDA_DE = ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os'];
+
+// A permissão "aceitar_prorrogacao" nasce com este código: nenhum usuário a
+// tem no banco no dia em que ela sobe, e sem herança a fila de prorrogações
+// ficaria sem ninguém para decidir. Enquanto NINGUÉM a tiver, quem já podia
+// prorrogar decide. Assim que o primeiro cargo é salvo com ela, a herança some
+// e passa a valer só o que está marcado — inclusive o que foi desmarcado.
+//
+// É a mesma regra da tela de cargos (aplicarPermissoesHerdadas), aplicada de
+// novo aqui: o frontend nunca é a única barreira.
+async function permissaoProrrogacaoJaConfigurada() {
+    try {
+        const r = await pool.query(`
+            SELECT 1 FROM usuarios
+             WHERE ativo = TRUE AND permissoes::text LIKE '%aceitar_prorrogacao%'
+             LIMIT 1
+        `);
+        return r.rows.length > 0;
+    } catch (e) {
+        console.warn("AVISO: Falha ao verificar 'aceitar_prorrogacao':", e.message);
+        return true; // na dúvida, exige a permissão explícita
+    }
+}
+
+// Quem pode decidir uma prorrogação. A resposta vem do BANCO sempre que o id
+// do usuário chega: a lista que o navegador manda serve só de reserva, para
+// sessão antiga que ainda não tem o id no payload.
+async function usuarioPodeAceitarProrrogacao(usuario) {
+    if (!usuario) return false;
+
+    let permissoes = null;
+    const idUsuario = parseInt(usuario.id);
+    if (Number.isInteger(idUsuario)) {
+        try {
+            const r = await pool.query("SELECT permissoes FROM usuarios WHERE id = $1 AND ativo = TRUE", [idUsuario]);
+            if (r.rows.length) permissoes = listaDePermissoes(r.rows[0].permissoes);
+        } catch (e) {
+            console.warn("AVISO: Falha ao ler permissões do usuário:", e.message);
+        }
+    }
+    if (!permissoes) {
+        permissoes = Array.isArray(usuario.permissoes) ? usuario.permissoes.map(String) : [];
+    }
+
+    if (permissoes.includes('*') || permissoes.includes('aceitar_prorrogacao')) return true;
+    if (!permissoes.some(p => PRORROGACAO_HERDA_DE.includes(p))) return false;
+    return !(await permissaoProrrogacaoJaConfigurada());
+}
+
+function dataISO(valor) {
+    if (!valor) return null;
+    const d = valor instanceof Date ? valor : new Date(valor);
+    return isNaN(d.getTime()) ? String(valor).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
+// Aplica a nova data na OS. É o único lugar que mexe em data_fim por causa de
+// prorrogação — a rota antiga e a aprovação do pedido passam as duas por aqui.
+async function aplicarProrrogacaoNaOS(os, novaData, motivo, usuarioNome, dadosExtras) {
+    const anterior = dataISO(os.data_fim);
+    const r = await pool.query(`
+        UPDATE solicitacoes
+           SET data_fim = $1::date,
+               status = 'prorrogada',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+     RETURNING *
+    `, [novaData, os.id]);
+
+    await registrarHistoricoOS({
+        solicitacao_id: os.id,
+        numero_os: os.numero_os,
+        evento: 'prorrogacao',
+        motivo: String(motivo || '').trim() || null,
+        observacao: anterior
+            ? `Término de ${dataBR(os.data_fim)} para ${dataBR(novaData)}`
+            : `Término definido para ${dataBR(novaData)}`,
+        data_evento: novaData,
+        usuario: usuarioNome || null,
+        dados: Object.assign({ data_fim_anterior: anterior, data_fim_nova: novaData }, dadosExtras || {})
+    });
+
+    cache.invalidar("solicitacoes", "baias");
+    return { os: r.rows[0], anterior };
+}
+
+// Validações comuns: a OS existe, está em campo e a data proposta é posterior
+// ao término atual. Devolve { erro, status } ou { os, anterior }.
+async function validarPedidoProrrogacao(osId, novaData) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(novaData)) {
+        return { erro: "Informe a nova data de término (AAAA-MM-DD)", status: 400 };
+    }
+    const osRes = await pool.query("SELECT * FROM solicitacoes WHERE id = $1", [osId]);
+    if (!osRes.rows.length) return { erro: "OS não encontrada", status: 404 };
+    const os = osRes.rows[0];
+
+    const status = String(os.status || '').toLowerCase().trim();
+    if (!['em_campo', 'prorrogada'].includes(status)) {
+        return { erro: "Só é possível prorrogar uma OS que está em campo", status: 409 };
+    }
+
+    const anterior = dataISO(os.data_fim);
+    if (anterior && novaData <= anterior) {
+        return { erro: `A nova data precisa ser posterior a ${dataBR(os.data_fim)}`, status: 400 };
+    }
+    return { os, anterior };
+}
+
+// ------------------------------------------------------------
+// GET /api/prorrogacoes?status=pendente&os_id=123
+//
+// A aba "Aprovar" lê os pendentes daqui; a Devolutiva usa a mesma lista para
+// saber quais OS já têm um pedido em aberto. Os dados da OS vêm no JOIN para
+// o cartão não depender de outra chamada.
+// ------------------------------------------------------------
+app.get("/api/prorrogacoes", async (req, res) => {
+    try {
+        await garantirTabelaProrrogacoes();
+        const filtros = [];
+        const valores = [];
+        const status = String(req.query.status || '').trim().toLowerCase();
+        if (status && status !== 'todas') {
+            valores.push(status);
+            filtros.push(`p.status = $${valores.length}`);
+        }
+        if (req.query.os_id) {
+            valores.push(parseInt(req.query.os_id));
+            filtros.push(`p.solicitacao_id = $${valores.length}`);
+        }
+        const onde = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
+        const r = await pool.query(`
+            SELECT p.*,
+                   s.cliente, s.obra, s.responsavel, s.responsavel_id,
+                   s.solicitado_por, s.data_inicio, s.status AS os_status,
+                   s.data_fim AS os_data_fim
+              FROM os_prorrogacoes p
+              LEFT JOIN solicitacoes s ON s.id = p.solicitacao_id
+              ${onde}
+             ORDER BY p.solicitado_em DESC, p.id DESC
+             LIMIT 300
+        `, valores);
+        res.json(r.rows);
+    } catch (err) {
+        console.error("ERRO: GET /api/prorrogacoes:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// POST /api/solicitacoes/:id/prorrogacoes { data_fim, motivo, usuario }
+//
+// Abre o pedido. Nada muda na OS aqui: a data só entra quando alguém com a
+// permissão "Aceitar prorrogação" aprovar.
+// ------------------------------------------------------------
+app.post("/api/solicitacoes/:id/prorrogacoes", async (req, res) => {
+    try {
+        await garantirTabelaProrrogacoes();
+        const { data_fim, motivo, usuario } = req.body || {};
+        const novaData = String(data_fim || '').slice(0, 10);
+        if (!String(motivo || '').trim()) {
+            return res.status(400).json({ erro: "O motivo da prorrogação é obrigatório" });
         }
 
-        const anterior = os.data_fim
-            ? new Date(os.data_fim).toISOString().slice(0, 10)
-            : null;
-        if (anterior && novaData <= anterior) {
-            return res.status(400).json({
-                erro: `A nova data precisa ser posterior a ${dataBR(os.data_fim)}`
+        const check = await validarPedidoProrrogacao(req.params.id, novaData);
+        if (check.erro) return res.status(check.status).json({ erro: check.erro });
+        const { os, anterior } = check;
+
+        // Um pedido de cada vez por OS: dois pendentes aprovariam datas
+        // diferentes para a mesma OS sem ninguém perceber.
+        const pendente = await pool.query(
+            "SELECT * FROM os_prorrogacoes WHERE solicitacao_id = $1 AND status = $2 LIMIT 1",
+            [os.id, PRORROGACAO_STATUS.PENDENTE]
+        );
+        if (pendente.rows.length) {
+            return res.status(409).json({
+                erro: "Esta OS já tem uma prorrogação aguardando aprovação.",
+                prorrogacao: pendente.rows[0]
             });
         }
 
+        const idSolicitante = Number.isInteger(parseInt(usuario?.id)) ? parseInt(usuario.id) : null;
         const r = await pool.query(`
-            UPDATE solicitacoes
-               SET data_fim = $1::date,
-                   status = 'prorrogada',
-                   updated_at = CURRENT_TIMESTAMP
-             WHERE id = $2
-         RETURNING *
-        `, [novaData, os.id]);
+            INSERT INTO os_prorrogacoes
+            (solicitacao_id, numero_os, data_fim_anterior, data_fim_solicitada, motivo,
+             status, solicitado_por, solicitado_por_id)
+            VALUES ($1,$2,$3::date,$4::date,$5,$6,$7,$8)
+            RETURNING *
+        `, [
+            os.id,
+            os.numero_os ? String(os.numero_os) : null,
+            anterior,
+            novaData,
+            String(motivo).trim(),
+            PRORROGACAO_STATUS.PENDENTE,
+            usuario?.nome || null,
+            idSolicitante
+        ]);
 
         await registrarHistoricoOS({
             solicitacao_id: os.id,
             numero_os: os.numero_os,
-            evento: 'prorrogacao',
+            evento: 'prorrogacao_solicitada',
             motivo: String(motivo).trim(),
             observacao: anterior
-                ? `Término de ${dataBR(os.data_fim)} para ${dataBR(novaData)}`
-                : `Término definido para ${dataBR(novaData)}`,
+                ? `Pedido de término de ${dataBR(os.data_fim)} para ${dataBR(novaData)}`
+                : `Pedido de término para ${dataBR(novaData)}`,
             data_evento: novaData,
-            usuario: responsavel || null,
-            dados: { data_fim_anterior: anterior, data_fim_nova: novaData }
+            usuario: usuario?.nome || null,
+            dados: { data_fim_anterior: anterior, data_fim_solicitada: novaData, prorrogacao_id: r.rows[0].id }
         });
 
-        cache.invalidar("solicitacoes", "baias");
-        res.json({ os: r.rows[0], data_fim_anterior: anterior, data_fim: novaData });
+        await push.notificar(pool, 'prorrogacao_solicitada', {
+            os,
+            remetente: usuario?.nome || os.solicitado_por,
+            permissao: 'aceitar_prorrogacao',
+            excluir: usuario?.id
+        });
+
+        res.status(201).json({ sucesso: true, prorrogacao: r.rows[0] });
     } catch (err) {
-        console.error("ERRO: PUT /api/solicitacoes/:id/prorrogar:", err.message);
+        console.error("ERRO: POST /api/solicitacoes/:id/prorrogacoes:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// PUT /api/prorrogacoes/:id/aprovar { data_fim, motivo_decisao, usuario }
+//
+// Aprovar e "editar e aprovar" são a mesma rota: mandando uma `data_fim`
+// diferente da pedida, o pedido é marcado como EDITADO e o motivo da edição
+// passa a ser obrigatório. Em qualquer um dos dois casos a data entra na OS.
+// ------------------------------------------------------------
+app.put("/api/prorrogacoes/:id/aprovar", async (req, res) => {
+    try {
+        await garantirTabelaProrrogacoes();
+        const { data_fim, motivo_decisao, usuario } = req.body || {};
+
+        if (!(await usuarioPodeAceitarProrrogacao(usuario))) {
+            return res.status(403).json({ erro: "Você não tem permissão para aceitar prorrogações." });
+        }
+
+        const pedidoRes = await pool.query("SELECT * FROM os_prorrogacoes WHERE id = $1", [req.params.id]);
+        if (!pedidoRes.rows.length) return res.status(404).json({ erro: "Solicitação de prorrogação não encontrada" });
+        const pedido = pedidoRes.rows[0];
+        if (pedido.status !== PRORROGACAO_STATUS.PENDENTE) {
+            return res.status(409).json({ erro: "Esta solicitação já foi decidida." });
+        }
+
+        const pedida = dataISO(pedido.data_fim_solicitada);
+        const novaData = String(data_fim || pedida || '').slice(0, 10);
+        const editada = novaData !== pedida;
+        const justificativa = String(motivo_decisao || '').trim();
+        if (editada && justificativa.length < 3) {
+            return res.status(400).json({ erro: "Informe o motivo da alteração da data." });
+        }
+
+        // A OS pode ter mudado desde o pedido: revalidamos contra o estado de agora.
+        const check = await validarPedidoProrrogacao(pedido.solicitacao_id, novaData);
+        if (check.erro) return res.status(check.status).json({ erro: check.erro });
+        const { os } = check;
+
+        const r = await pool.query(`
+            UPDATE os_prorrogacoes
+               SET status = $1,
+                   data_fim_aprovada = $2::date,
+                   editada = $3,
+                   motivo_decisao = $4,
+                   decidido_por = $5,
+                   decidido_por_id = $6,
+                   decidido_em = CURRENT_TIMESTAMP
+             WHERE id = $7 AND status = $8
+         RETURNING *
+        `, [
+            PRORROGACAO_STATUS.APROVADA,
+            novaData,
+            editada,
+            justificativa || null,
+            usuario?.nome || null,
+            Number.isInteger(parseInt(usuario?.id)) ? parseInt(usuario.id) : null,
+            pedido.id,
+            PRORROGACAO_STATUS.PENDENTE
+        ]);
+        // O WHERE com o status antigo impede decisão dupla em corrida.
+        if (!r.rows.length) return res.status(409).json({ erro: "Esta solicitação já foi decidida por outra pessoa." });
+
+        const aplicado = await aplicarProrrogacaoNaOS(os, novaData, pedido.motivo, usuario?.nome, {
+            prorrogacao_id: pedido.id,
+            solicitado_por: pedido.solicitado_por,
+            aprovado_por: usuario?.nome || null,
+            data_fim_solicitada: pedida,
+            editada,
+            motivo_edicao: editada ? justificativa : null
+        });
+
+        if (editada) {
+            await registrarHistoricoOS({
+                solicitacao_id: os.id,
+                numero_os: os.numero_os,
+                evento: 'prorrogacao_editada',
+                motivo: justificativa,
+                observacao: `Data pedida ${dataBR(pedida)} alterada para ${dataBR(novaData)} na aprovação`,
+                data_evento: novaData,
+                usuario: usuario?.nome || null,
+                dados: { prorrogacao_id: pedido.id, data_fim_solicitada: pedida, data_fim_aprovada: novaData }
+            });
+        }
+
+        // Quem pediu precisa saber que a data mudou (e qual data ficou).
+        if (pedido.solicitado_por_id) {
+            await push.notificar(pool, 'prorrogada', {
+                os: aplicado.os,
+                usuarioIds: [pedido.solicitado_por_id],
+                corpo: editada
+                    ? `Prorrogação aprovada com outra data: ${dataBR(novaData)}.`
+                    : `Prorrogação aprovada até ${dataBR(novaData)}.`,
+                excluir: usuario?.id
+            });
+        }
+
+        res.json({ sucesso: true, prorrogacao: r.rows[0], os: aplicado.os, data_fim: novaData });
+    } catch (err) {
+        console.error("ERRO: PUT /api/prorrogacoes/:id/aprovar:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// PUT /api/prorrogacoes/:id/rejeitar { motivo, usuario }
+//
+// A OS não muda: continua com o término que já tinha. O motivo da recusa é
+// obrigatório e fica no pedido e no histórico da OS.
+// ------------------------------------------------------------
+app.put("/api/prorrogacoes/:id/rejeitar", async (req, res) => {
+    try {
+        await garantirTabelaProrrogacoes();
+        const { motivo, usuario } = req.body || {};
+
+        if (!(await usuarioPodeAceitarProrrogacao(usuario))) {
+            return res.status(403).json({ erro: "Você não tem permissão para aceitar prorrogações." });
+        }
+        const justificativa = String(motivo || '').trim();
+        if (justificativa.length < 3) {
+            return res.status(400).json({ erro: "O motivo da rejeição é obrigatório" });
+        }
+
+        const pedidoRes = await pool.query("SELECT * FROM os_prorrogacoes WHERE id = $1", [req.params.id]);
+        if (!pedidoRes.rows.length) return res.status(404).json({ erro: "Solicitação de prorrogação não encontrada" });
+        const pedido = pedidoRes.rows[0];
+        if (pedido.status !== PRORROGACAO_STATUS.PENDENTE) {
+            return res.status(409).json({ erro: "Esta solicitação já foi decidida." });
+        }
+
+        const r = await pool.query(`
+            UPDATE os_prorrogacoes
+               SET status = $1,
+                   motivo_decisao = $2,
+                   decidido_por = $3,
+                   decidido_por_id = $4,
+                   decidido_em = CURRENT_TIMESTAMP
+             WHERE id = $5 AND status = $6
+         RETURNING *
+        `, [
+            PRORROGACAO_STATUS.REJEITADA,
+            justificativa,
+            usuario?.nome || null,
+            Number.isInteger(parseInt(usuario?.id)) ? parseInt(usuario.id) : null,
+            pedido.id,
+            PRORROGACAO_STATUS.PENDENTE
+        ]);
+        if (!r.rows.length) return res.status(409).json({ erro: "Esta solicitação já foi decidida por outra pessoa." });
+
+        const osRes = await pool.query("SELECT * FROM solicitacoes WHERE id = $1", [pedido.solicitacao_id]);
+        const os = osRes.rows[0] || { id: pedido.solicitacao_id, numero_os: pedido.numero_os };
+
+        await registrarHistoricoOS({
+            solicitacao_id: pedido.solicitacao_id,
+            numero_os: pedido.numero_os,
+            evento: 'prorrogacao_rejeitada',
+            motivo: justificativa,
+            observacao: `Pedido de término para ${dataBR(pedido.data_fim_solicitada)} rejeitado — a OS mantém o prazo atual`,
+            data_evento: hojeISO(),
+            usuario: usuario?.nome || null,
+            dados: {
+                prorrogacao_id: pedido.id,
+                solicitado_por: pedido.solicitado_por,
+                data_fim_solicitada: dataISO(pedido.data_fim_solicitada)
+            }
+        });
+
+        if (pedido.solicitado_por_id) {
+            await push.notificar(pool, 'prorrogacao_rejeitada', {
+                os,
+                usuarioIds: [pedido.solicitado_por_id],
+                excluir: usuario?.id
+            });
+        }
+
+        res.json({ sucesso: true, prorrogacao: r.rows[0] });
+    } catch (err) {
+        console.error("ERRO: PUT /api/prorrogacoes/:id/rejeitar:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });

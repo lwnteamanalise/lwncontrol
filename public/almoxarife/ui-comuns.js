@@ -446,17 +446,34 @@ window.lwnAbrirCamera = lwnAbrirCamera;
 // Liga a detecção de leitura em um campo. Chama aoBipar(codigo) assim que o
 // leitor termina, e nunca dispara para digitação humana normal.
 //
-//   campo          <input> de texto
-//   aoBipar        callback(codigo)
-//   opcoes.minimo  tamanho mínimo do código (padrão 3)
-//   opcoes.enter   true = Enter também confirma manualmente (padrão true)
+//   campo               <input> de texto
+//   aoBipar             callback(codigo)
+//   opcoes.minimo       tamanho mínimo do código (padrão 3)
+//   opcoes.enter        true = Enter também confirma manualmente (padrão true)
+//   opcoes.somenteLeitor  o campo aceita SÓ o leitor físico: a digitação
+//                         humana e o "colar" são descartados (ver abaixo)
+//
+// SOMENTE LEITOR — por que o campo continua habilitado
+//
+// Um leitor físico é um teclado: ele só consegue escrever num campo que está
+// habilitado e focado. Com `disabled`/`readonly` (como era antes) o leitor
+// simplesmente não bipava, e quem não tinha a permissão de DIGITAR ficava sem
+// bipar de jeito nenhum no computador — só pela câmera do celular.
+//
+// Agora o campo fica habilitado para todos e a permissão passa a valer no
+// conteúdo: o que chega em velocidade de máquina é aceito; o que é teclado à
+// mão (ou colado) é apagado na hora, com aviso. O resultado é o do celular —
+// bipou, entrou sozinho.
 function lwnObservarBipagem(campo, aoBipar, opcoes) {
     if (!campo || campo.dataset.bipagemLigada === '1') return;
     campo.dataset.bipagemLigada = '1';
 
     const cfg = opcoes || {};
     const minimo = cfg.minimo || 3;
-    const aceitaEnter = cfg.enter !== false;
+    const somenteLeitor = cfg.somenteLeitor === true;
+    // Sem permissão de digitar, o Enter sozinho não confirma nada: ele só vale
+    // quando vem no fim de uma leitura (velocidade de máquina).
+    const aceitaEnter = somenteLeitor ? false : cfg.enter !== false;
 
     let ultimaTecla = 0;
     let rapidas = 0;
@@ -468,13 +485,24 @@ function lwnObservarBipagem(campo, aoBipar, opcoes) {
         if (valor.length >= minimo) aoBipar(valor);
     };
 
+    // Digitação humana num campo de "somente leitor": não vale, é descartada.
+    const descartarDigitacao = () => {
+        rapidas = 0;
+        if (!String(campo.value || '')) return;
+        campo.value = '';
+        if (typeof showToast === 'function') {
+            showToast('Digitar o código não é permitido para o seu cargo — bipe com o leitor ou use a câmera.', 'warning');
+        }
+    };
+
     campo.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         // O Enter do leitor nunca deve submeter o formulário em volta.
         e.preventDefault();
         e.stopPropagation();
         if (timer) { clearTimeout(timer); timer = null; }
-        if (aceitaEnter || rapidas >= 3) disparar();
+        if (aceitaEnter || rapidas >= 3) { disparar(); return; }
+        if (somenteLeitor) descartarDigitacao();
     });
 
     campo.addEventListener('keypress', (e) => {
@@ -490,11 +518,35 @@ function lwnObservarBipagem(campo, aoBipar, opcoes) {
         // se a digitação tiver sido em velocidade de máquina.
         timer = setTimeout(() => {
             timer = null;
-            if (rapidas >= 3) disparar();
+            if (rapidas >= 3) { disparar(); return; }
+            if (somenteLeitor) descartarDigitacao();
         }, 180);
     });
+
+    if (somenteLeitor) {
+        // O teclado do celular não abre (o campo não é para ser digitado),
+        // mas o leitor físico continua escrevendo nele.
+        campo.setAttribute('inputmode', 'none');
+        ['paste', 'drop'].forEach(evento => campo.addEventListener(evento, (e) => {
+            e.preventDefault();
+            if (typeof showToast === 'function') {
+                showToast('Colar o código não é permitido para o seu cargo — bipe com o leitor ou use a câmera.', 'warning');
+            }
+        }));
+    }
 }
 window.lwnObservarBipagem = lwnObservarBipagem;
+
+// Liga o leitor físico respeitando a permissão de DIGITAR na bipagem.
+// Quem não pode digitar continua bipando com o leitor e com a câmera: só o
+// que for teclado humano é descartado (ver lwnObservarBipagem).
+function lwnLigarLeitorBipagem(campo, aoBipar, opcoes) {
+    if (!campo) return;
+    const podeDigitar = (typeof usuarioPodeDigitarBipagem === 'function')
+        ? usuarioPodeDigitarBipagem() : true;
+    lwnObservarBipagem(campo, aoBipar, Object.assign({}, opcoes || {}, { somenteLeitor: !podeDigitar }));
+}
+window.lwnLigarLeitorBipagem = lwnLigarLeitorBipagem;
 
 // Impede que o Enter dentro de um formulário dispare o submit.
 // Usado no cadastro de ferramenta: bipar o código preenche o campo, e o
