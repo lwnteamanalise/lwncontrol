@@ -2735,7 +2735,7 @@ function confConfirmarEnvioBipagem(etapa, quantidade, faltando) {
                    Tudo foi bipado — confirmando, a <strong>OS será concluída</strong> e as baias liberadas.
                </div>`}`
             : `<p style="font-size:0.88rem;color:var(--text-main);margin:0 0 0.7rem;">
-                   Você está enviando <strong>${quantidade} ferramenta(s)</strong> para a obra.
+                   Você está retirando <strong>${quantidade} ferramenta(s)</strong> para a obra.
                </p>
                <div style="border:1px solid var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 12%, transparent);border-radius:0.5rem;padding:0.7rem 0.85rem;font-size:0.8rem;color:var(--text-main);">
                    Confirmando, elas passam a constar <strong>em campo</strong> no nome desta OS e a devolução
