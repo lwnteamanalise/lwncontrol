@@ -541,10 +541,13 @@ function setupLoginScreen() {
         emailInput.addEventListener('keydown', aoPressionarEnter);
         pwdInput.addEventListener('keydown', aoPressionarEnter);
 
+        // A recuperação virou um fluxo em dois passos na própria página:
+        // informar e-mail/CPF -> receber o código por e-mail -> trocar a senha.
+        // O que já estiver digitado aqui vai junto, para não digitar duas vezes.
         document.getElementById('btnEsqueciSenha')?.addEventListener('click', function () {
-            const email = document.getElementById('loginEmailInput')?.value.trim();
-            window.location.href = email
-                ? `./almoxarife/redefinir-senha.html?email=${encodeURIComponent(email)}`
+            const informado = document.getElementById('loginEmailInput')?.value.trim();
+            window.location.href = informado
+                ? `./almoxarife/redefinir-senha.html?identificador=${encodeURIComponent(informado)}`
                 : './almoxarife/redefinir-senha.html';
         });
     }

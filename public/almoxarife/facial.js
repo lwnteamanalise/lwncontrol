@@ -77,17 +77,23 @@ function facialMontarBotao() {
     const estilo = document.createElement('style');
     estilo.id = 'facial-fab-estilo';
     estilo.textContent = `
+        /* Ele fica ACIMA da barra inferior, e translúcido: parado, deixa ver
+           o que está atrás; com o cursor em cima (ou tocado), fica sólido.
+           Antes ele era opaco e colado no rodapé, e cobria o menu. */
         #facial-fab {
-            position: fixed; right: 1.15rem; bottom: 1.15rem; z-index: 1200;
-            width: 3.35rem; height: 3.35rem; border-radius: 50%;
+            position: fixed; right: 1.15rem; bottom: 5.5rem; z-index: 1200;
+            width: 3rem; height: 3rem; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             border: none; cursor: pointer; color: #fff;
             background: var(--primary, #1e40af);
-            box-shadow: 0 8px 22px rgba(0,0,0,0.28);
-            transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+            opacity: 0.45;
+            transition: opacity .16s ease, transform .16s ease, box-shadow .16s ease, background .16s ease;
         }
-        #facial-fab:hover  { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,0.34); }
-        #facial-fab:active { transform: translateY(0); }
+        #facial-fab:hover, #facial-fab:focus-visible {
+            opacity: 1; transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,0.32);
+        }
+        #facial-fab:active { opacity: 1; transform: translateY(0); }
         #facial-fab.cadastrado { background: var(--success, #16a34a); }
         /* Um ponto verde diz, de relance, que este aparelho já está cadastrado. */
         #facial-fab .facial-selo {
@@ -97,8 +103,8 @@ function facialMontarBotao() {
             display: none;
         }
         #facial-fab.cadastrado .facial-selo { display: block; }
-        /* Em telas estreitas o botão sobe, para não cobrir a barra de abas. */
-        @media (max-width: 640px) { #facial-fab { bottom: 4.6rem; } }
+        /* No celular a barra de abas é mais alta, então ele sobe mais. */
+        @media (max-width: 640px) { #facial-fab { bottom: 7rem; right: 0.9rem; } }
     `;
     document.head.appendChild(estilo);
 
@@ -108,6 +114,10 @@ function facialMontarBotao() {
     btn.title = 'Cadastrar meu reconhecimento facial';
     btn.setAttribute('aria-label', 'Cadastrar reconhecimento facial');
     btn.innerHTML = FACIAL_ICONE + '<span class="facial-selo"></span>';
+    // No toque não existe hover: encostar nele já o deixa sólido, e ele volta
+    // a ser translúcido sozinho — senão ficaria apagado a viagem inteira.
+    btn.addEventListener('touchstart', () => { btn.style.opacity = '1'; }, { passive: true });
+    btn.addEventListener('touchend', () => { setTimeout(() => { btn.style.opacity = ''; }, 1200); }, { passive: true });
     btn.onclick = facialAbrirPainel;
     document.body.appendChild(btn);
 

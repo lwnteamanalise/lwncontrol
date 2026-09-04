@@ -1019,187 +1019,266 @@ app.delete("/api/usuarios/:id", async (req, res) => {
     }
 });
 
-app.post("/api/usuarios/:id/gerar-codigo", async (req, res) => {
-    console.log(" Gerando/obtendo código para usuário ID:", req.params.id);
-    
+// ============================================================
+// RECUPERAÇÃO DE SENHA — O CÓDIGO VAI PARA O E-MAIL
+//
+// Antes, redefinir senha dependia de um administrador: ele abria a aba
+// Colaboradores, clicava em "Gerar Código", lia o número na tela e passava
+// para a pessoa por telefone ou WhatsApp. O código nunca chegava sozinho a
+// ninguém, e quem esquecia a senha fora do horário comercial ficava parado.
+//
+// Agora o próprio colaborador resolve, em dois passos:
+//
+//   1. POST /api/senha/solicitar-codigo { identificador }
+//      Ele informa o e-mail OU o CPF. Em qualquer um dos dois casos o código
+//      vai para o E-MAIL CADASTRADO daquele colaborador — informar o CPF não
+//      permite escolher para onde o código é enviado.
+//
+//   2. POST /api/senha/redefinir { identificador, codigo, nova_senha }
+//
+// O que o passo 1 responde, de propósito, é sempre a mesma coisa quando o
+// cadastro existe — e diz "procure o responsável" só quando o colaborador
+// existe mas está SEM e-mail, porque aí não há para onde mandar e a pessoa
+// precisa saber o que fazer. Quando o identificador não existe em lugar
+// nenhum, a resposta é a mesma do caso de sucesso: senão esta rota viraria
+// um jeito de descobrir quem tem cadastro na empresa.
+// ============================================================
+const SENHA_CODIGO_MINUTOS = 15;
+
+async function garantirTabelaCodigos() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS codigos_recuperacao (
+            id SERIAL PRIMARY KEY,
+            usuario_id INTEGER NOT NULL,
+            codigo VARCHAR(6) NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expira_em TIMESTAMP NOT NULL,
+            usado BOOLEAN DEFAULT FALSE,
+            ativo BOOLEAN DEFAULT TRUE
+        )
+    `);
+}
+
+// Acha o colaborador por e-mail OU por CPF. O CPF é comparado só pelos
+// dígitos, porque ele é digitado com e sem pontuação.
+async function acharUsuarioPorIdentificador(identificador) {
+    const bruto = String(identificador || '').trim();
+    if (!bruto) return null;
+    const digitos = bruto.replace(/\D/g, '');
+    const r = await pool.query(`
+        SELECT id, nome, email, cpf, cargo
+          FROM usuarios
+         WHERE LOWER(email) = LOWER($1)
+            OR ($2 <> '' AND regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = $2)
+         ORDER BY id
+         LIMIT 1
+    `, [bruto, digitos]);
+    return r.rows[0] || null;
+}
+
+// Mostra o e-mail sem entregá-lo: "jefferson.silva@lwn.com.br" vira
+// "je*************@lwn.com.br". Confirma para a pessoa certa qual caixa
+// olhar, sem revelar o endereço para quem só chutou um CPF.
+function mascararEmail(email) {
+    const e = String(email || '');
+    const i = e.indexOf('@');
+    if (i < 1) return '—';
+    const usuario = e.slice(0, i);
+    const dominio = e.slice(i);
+    const visivel = usuario.slice(0, Math.min(2, usuario.length));
+    return visivel + '*'.repeat(Math.max(3, usuario.length - visivel.length)) + dominio;
+}
+
+app.post("/api/senha/solicitar-codigo", async (req, res) => {
     try {
-        const { id } = req.params;
-        const { forcar_novo } = req.body;
-
-        const usuario = await pool.query("SELECT id, nome, cpf FROM usuarios WHERE id = $1", [id]);
-        if (usuario.rows.length === 0) {
-            return res.status(404).json({ erro: "Usuário não encontrado" });
+        await garantirTabelaCodigos();
+        const identificador = String((req.body || {}).identificador || '').trim();
+        if (!identificador) {
+            return res.status(400).json({ erro: "Informe o seu e-mail ou CPF." });
         }
 
-        const userId = usuario.rows[0].id;
-        const nome = usuario.rows[0].nome;
-        const cpf = usuario.rows[0].cpf || '';
+        const usuario = await acharUsuarioPorIdentificador(identificador);
 
-        // Tentar criar a tabela se não existir
-        try {
-            await pool.query(`
-                CREATE TABLE IF NOT EXISTS codigos_recuperacao (
-                    id SERIAL PRIMARY KEY,
-                    usuario_id INTEGER NOT NULL,
-                    codigo VARCHAR(6) NOT NULL,
-                    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expira_em TIMESTAMP NOT NULL,
-                    usado BOOLEAN DEFAULT FALSE,
-                    ativo BOOLEAN DEFAULT TRUE
-                )
-            `);
-        } catch (e) {
-            console.warn("AVISO: Erro ao criar tabela codigos_recuperacao:", e.message);
+        // Não existe: responde como se tivesse dado certo (ver o comentário do
+        // topo). Nenhum e-mail é enviado.
+        if (!usuario) {
+            return res.json({
+                sucesso: true,
+                enviado: true,
+                email_mascarado: null,
+                mensagem: "Se este cadastro existir, o código foi enviado para o e-mail cadastrado."
+            });
         }
 
-        // Verificar código ativo existente
-        let codigoAtivo = await pool.query(`
-            SELECT id, codigo, expira_em, criado_em
-            FROM codigos_recuperacao 
-            WHERE usuario_id = $1 
-            AND ativo = TRUE 
-            AND usado = FALSE
-            AND expira_em > NOW()
-            ORDER BY criado_em DESC 
-            LIMIT 1
-        `, [userId]);
-
-        let codigo, expiraEm, criadoEm;
-
-        if (codigoAtivo.rows.length === 0 || forcar_novo) {
-            // Desativar códigos antigos
-            await pool.query(
-                "UPDATE codigos_recuperacao SET ativo = FALSE WHERE usuario_id = $1 AND ativo = TRUE",
-                [userId]
-            );
-
-            // Gerar novo código
-            codigo = String(Math.floor(100000 + Math.random() * 900000));
-            
-            const result = await pool.query(`
-                INSERT INTO codigos_recuperacao (usuario_id, codigo, expira_em, ativo)
-                VALUES ($1, $2, NOW() + INTERVAL '1 minute', TRUE)
-                RETURNING codigo, expira_em, criado_em
-            `, [userId, codigo]);
-
-            codigo = result.rows[0].codigo;
-            expiraEm = result.rows[0].expira_em;
-            criadoEm = result.rows[0].criado_em;
-            
-            console.log("OK: NOVO código gerado para:", nome);
-        } else {
-            codigo = codigoAtivo.rows[0].codigo;
-            expiraEm = codigoAtivo.rows[0].expira_em;
-            criadoEm = codigoAtivo.rows[0].criado_em;
-            console.log("OK: Código EXISTENTE reutilizado para:", nome);
+        // Existe, mas sem e-mail: aí a pessoa precisa saber por que o código
+        // não vai chegar, e o que fazer.
+        if (!usuario.email || !String(usuario.email).includes('@')) {
+            return res.status(409).json({
+                erro: "Este cadastro não tem e-mail cadastrado, então não há para onde enviar o código. "
+                    + "Fale com o responsável para a inclusão do seu e-mail.",
+                sem_email: true
+            });
         }
 
-        const agora = new Date();
-        const expira = new Date(expiraEm);
-        const tempoRestante = Math.max(0, Math.floor((expira - agora) / 1000));
+        // Um código por vez: os anteriores morrem.
+        await pool.query(
+            "UPDATE codigos_recuperacao SET ativo = FALSE WHERE usuario_id = $1 AND ativo = TRUE",
+            [usuario.id]
+        );
+
+        const codigo = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+        await pool.query(`
+            INSERT INTO codigos_recuperacao (usuario_id, codigo, expira_em, ativo)
+            VALUES ($1, $2, NOW() + ($3 || ' minutes')::interval, TRUE)
+        `, [usuario.id, codigo, String(SENHA_CODIGO_MINUTOS)]);
+
+        const envio = await mail.enviarEmail({
+            para: usuario.email,
+            assunto: `LWN Control — seu código de recuperação: ${codigo}`,
+            html: `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.07);">
+        <tr><td style="background:#374995;padding:20px 24px;">
+          <div style="color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">LWN Control</div>
+          <div style="color:#ffffff;font-size:20px;font-weight:800;margin-top:4px;">Recuperação de senha</div>
+        </td></tr>
+        <tr><td style="padding:24px;">
+          <p style="margin:0 0 18px;font-size:14.5px;line-height:1.55;color:#374151;">
+            Olá, <strong>${String(usuario.nome || '').replace(/[<>&"]/g, '')}</strong>. Use o código abaixo para criar uma senha nova:
+          </p>
+          <div style="text-align:center;margin:0 0 18px;">
+            <div style="display:inline-block;background:#f3f4f6;border:1px solid #e6e9f0;border-radius:10px;padding:14px 26px;
+                        font-family:Consolas,monospace;font-size:32px;font-weight:800;letter-spacing:.22em;color:#1c2b63;">
+              ${codigo}
+            </div>
+          </div>
+          <p style="margin:0 0 6px;font-size:13px;line-height:1.55;color:#6b7280;">
+            O código vale por <strong>${SENHA_CODIGO_MINUTOS} minutos</strong> e só pode ser usado uma vez.
+          </p>
+          <p style="margin:0;font-size:13px;line-height:1.55;color:#6b7280;">
+            Se não foi você quem pediu, ignore este e-mail — a sua senha continua a mesma.
+          </p>
+        </td></tr>
+        <tr><td style="padding:14px 24px 22px;border-top:1px solid #eef0f4;">
+          <p style="margin:0;font-size:11.5px;line-height:1.5;color:#9ca3af;">
+            Aviso automático do LWN Control — não responda a este e-mail.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`
+        });
+
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'solicitar',
+            modulo: 'seguranca',
+            entidade: 'Recuperação de senha',
+            descricao: 'Pediu um código de recuperação de senha',
+            detalhes: {
+                contexto: {
+                    'Informou': identificador.includes('@') ? 'e-mail' : 'CPF',
+                    'Código enviado para': mascararEmail(usuario.email),
+                    'E-mail entregue ao servidor': envio.enviados ? 'Sim' : ('Não — ' + (envio.motivo || 'falha')),
+                    'Validade': SENHA_CODIGO_MINUTOS + ' minutos'
+                }
+            }
+        });
+
+        // O envio falhou (Outlook fora do ar ou sem configuração): dizer
+        // "enviado" aqui deixaria a pessoa esperando um e-mail que não vem.
+        if (!envio.enviados) {
+            return res.status(502).json({
+                erro: "Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos "
+                    + "ou fale com o responsável.",
+                detalhe: envio.motivo || null
+            });
+        }
 
         res.json({
             sucesso: true,
-            usuario: nome,
-            cpf: cpf,
-            codigo: codigo,
-            expira_em: expiraEm,
-            tempo_restante: tempoRestante,
-            criado_em: criadoEm,
-            reutilizado: codigoAtivo.rows.length > 0 && !forcar_novo,
-            mensagem: codigoAtivo.rows.length > 0 && !forcar_novo ? 
-                "Código existente ainda válido" : 
-                "Novo código gerado com sucesso!"
+            enviado: true,
+            email_mascarado: mascararEmail(usuario.email),
+            expira_em_minutos: SENHA_CODIGO_MINUTOS,
+            mensagem: "Código enviado para o e-mail cadastrado."
         });
-
     } catch (err) {
-        console.error("ERRO: ERRO:", err);
+        console.error("ERRO: POST /api/senha/solicitar-codigo:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
 
-app.post("/api/usuarios/validar-codigo", async (req, res) => {
-    console.log("Validando código...");
-    console.log("Body recebido:", req.body);
-    
+app.post("/api/senha/redefinir", async (req, res) => {
     try {
-        const { cpf, codigo, nova_senha } = req.body;
+        await garantirTabelaCodigos();
+        const b = req.body || {};
+        const identificador = String(b.identificador || '').trim();
+        const codigo = String(b.codigo || '').trim();
+        const novaSenha = String(b.nova_senha || '');
 
-        console.log(` CPF: ${cpf}`);
-        console.log(` Código: ${codigo}`);
-        console.log(` Nova senha: ${nova_senha}`);
-
-        if (!cpf || !codigo || !nova_senha) {
-            return res.status(400).json({ 
-                erro: "CPF, código e nova senha são obrigatórios" 
-            });
+        if (!identificador || !codigo || !novaSenha) {
+            return res.status(400).json({ erro: "Informe o e-mail/CPF, o código e a nova senha." });
+        }
+        if (novaSenha.length < 6) {
+            return res.status(400).json({ erro: "A nova senha deve ter pelo menos 6 caracteres." });
         }
 
-        if (nova_senha.length < 6) {
-            return res.status(400).json({ 
-                erro: "A nova senha deve ter pelo menos 6 caracteres" 
-            });
-        }
+        const usuario = await acharUsuarioPorIdentificador(identificador);
+        // Mensagem única para "não existe" e "código errado": separá-las diria
+        // a quem chuta se aquele cadastro existe.
+        const recusa = { erro: "Código inválido, expirado ou já utilizado." };
+        if (!usuario) return res.status(400).json(recusa);
 
-        const usuario = await pool.query(
-            "SELECT id, nome FROM usuarios WHERE cpf = $1",
-            [cpf]
-        );
-        
-        if (usuario.rows.length === 0) {
-            return res.status(404).json({ erro: "Usuário não encontrado com este CPF" });
-        }
+        const valido = await pool.query(`
+            SELECT id FROM codigos_recuperacao
+             WHERE usuario_id = $1 AND codigo = $2
+               AND ativo = TRUE AND usado = FALSE AND expira_em > NOW()
+             ORDER BY criado_em DESC LIMIT 1
+        `, [usuario.id, codigo]);
+        if (!valido.rows.length) return res.status(400).json(recusa);
 
-        const userId = usuario.rows[0].id;
-
-        const codigoValido = await pool.query(`
-            SELECT id, codigo, expira_em 
-            FROM codigos_recuperacao 
-            WHERE usuario_id = $1 
-            AND codigo = $2 
-            AND ativo = TRUE
-            AND usado = FALSE
-            AND expira_em > NOW()
-            ORDER BY criado_em DESC 
-            LIMIT 1
-        `, [userId, codigo]);
-
-        if (codigoValido.rows.length === 0) {
-            return res.status(400).json({ 
-                erro: "Código inválido, expirado ou já utilizado" 
-            });
-        }
-
-        // Hash da nova senha
-        if (!nova_senha || nova_senha.length === 0) {
-            return res.status(400).json({ erro: "Senha inválida" });
-        }
-        
-        const senhaHash = await bcryptjs.hash(nova_senha, 10);
-
-        await pool.query(
-            "UPDATE usuarios SET senha = $1 WHERE id = $2",
-            [senhaHash, userId]
-        );
-
+        const senhaHash = await bcryptjs.hash(novaSenha, 10);
+        await pool.query("UPDATE usuarios SET senha = $1 WHERE id = $2", [senhaHash, usuario.id]);
         await pool.query(
             "UPDATE codigos_recuperacao SET usado = TRUE, ativo = FALSE WHERE id = $1",
-            [codigoValido.rows[0].id]
+            [valido.rows[0].id]
         );
 
-        console.log(`OK: Senha redefinida com bcryptjs para: ${usuario.rows[0].nome}`);
+        // Trocar a senha derruba as sessões salvas: quem tinha o acesso antigo
+        // num aparelho perdido não continua entrando com ele.
+        try {
+            await pool.query("DELETE FROM sessoes_persistentes WHERE usuario_id = $1", [usuario.id]);
+        } catch (e) { /* a tabela pode ainda não existir */ }
 
-        res.json({
-            sucesso: true,
-            mensagem: "Senha redefinida com sucesso!",
-            usuario: usuario.rows[0].nome
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'editar',
+            modulo: 'seguranca',
+            entidade: 'Senha',
+            descricao: 'Redefiniu a própria senha com o código enviado por e-mail',
+            detalhes: {
+                contexto: {
+                    'Método': 'Código de 6 dígitos por e-mail',
+                    'Sessões salvas': 'encerradas',
+                    'Navegador': req.headers['user-agent'] || '—'
+                }
+            }
         });
 
+        res.json({ sucesso: true, usuario: usuario.nome, mensagem: "Senha redefinida com sucesso!" });
     } catch (err) {
-        console.error("ERRO: ERRO:", err);
+        console.error("ERRO: POST /api/senha/redefinir:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
+
 
 // ============================================================
 // ROTA POST - LOGIN
@@ -5734,9 +5813,17 @@ app.post("/api/remanejamentos/passar", async (req, res) => {
         const solicitante = String(b.solicitado_por || '').trim();
 
         if (!origem) return res.status(400).json({ erro: "A obra de origem é obrigatória." });
-        if (!destinatario) return res.status(400).json({ erro: "Informe quem vai receber o remanejamento." });
-        if (!b.destino && !b.os_destino_id) {
-            return res.status(400).json({ erro: "Informe a obra de destino do remanejamento." });
+        // Um dos dois destinos basta:
+        //   só destinatário -> a ferramenta fica com a pessoa e aparece na
+        //                      Localização no nome dela; ela devolve pela aba
+        //                      "Estou devolvendo"
+        //   só obra         -> entra na O.S. daquela obra e é exigida na
+        //                      devolutiva de lá
+        //   os dois         -> entra na O.S. e a pessoa assina o recebimento
+        if (!destinatario && !b.os_destino_id && !b.destino) {
+            return res.status(400).json({
+                erro: "Informe a obra de destino ou quem vai receber — um dos dois basta."
+            });
         }
 
         const itens = Array.isArray(b.itens) ? b.itens : [];

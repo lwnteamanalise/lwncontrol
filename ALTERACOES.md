@@ -53,6 +53,8 @@
 36. Entrar com a conta Outlook, com a foto do perfil
 37. Notificação por e-mail
 38. Logs: o que faltava passou a ser registrado
+39. Recuperação de senha: o código vai para o e-mail
+40. Ajustes de 04/09 (segunda rodada)
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -928,3 +930,62 @@ Módulo novo nos filtros: **`seguranca`**.
 As rotas que o servidor registra sozinho ficam **fora** da captura automática
 do navegador — senão sairiam duas linhas para o mesmo ato, uma delas mais
 pobre.
+
+---
+
+## 39. Recuperação de senha: o código vai para o e-mail (04/09)
+
+Redefinir senha dependia de um administrador: ele abria a aba **Colaboradores**,
+clicava em **"Gerar Código"**, lia o número na tela e passava para a pessoa por
+telefone ou WhatsApp. O código nunca chegava sozinho a ninguém, e quem esquecia
+a senha fora do horário comercial ficava parado.
+
+O botão **"Gerar Código" foi removido** da aba Colaboradores. Agora o próprio
+colaborador resolve, em **"Esqueceu sua senha?"** na tela de login:
+
+1. informa o **e-mail ou o CPF**;
+2. recebe um **código de 6 dígitos no e-mail cadastrado**, válido por 15 minutos;
+3. digita o código e escolhe a senha nova.
+
+O CPF serve só para achar o cadastro — **o código vai sempre para o e-mail do
+perfil**, nunca para um endereço informado na hora. A tela mostra o destino
+mascarado (`je*********@lwn.com.br`) para a pessoa saber qual caixa olhar.
+
+**Sem e-mail cadastrado**, a resposta é direta: *"Este cadastro não tem e-mail
+cadastrado... Fale com o responsável para a inclusão do seu e-mail."*
+
+Quando o e-mail/CPF **não existe**, a resposta é a mesma do caso de sucesso e
+nenhum e-mail sai — senão a tela viraria um jeito de descobrir quem tem cadastro
+na empresa. Trocar a senha também **encerra as sessões salvas**: quem tinha o
+acesso antigo num aparelho perdido não continua entrando com ele.
+
+---
+
+## 40. Ajustes de 04/09 (segunda rodada)
+
+**Separação: um campo só.** A baia e as ferramentas passaram a ser bipadas na
+**mesma linha** — não existem mais dois campos. O código lido é testado primeiro
+como baia e, não sendo uma, como ferramenta. A **ordem continua obrigatória**:
+antes da baia, nenhuma ferramenta é aceita, e o aviso abaixo do campo diz
+*"Comece pela baia — as ferramentas só são aceitas depois dela."*
+
+**A foto do perfil saiu do Painel.** Ela continua sendo trazida da conta
+Microsoft e guardada no cadastro; o que saiu foi o avatar ao lado da saudação.
+
+**O botão do Face ID subiu e ficou translúcido.** Ele cobria o menu: agora fica
+acima da barra inferior, um pouco menor e com 45% de opacidade — fica sólido ao
+passar o cursor ou tocar.
+
+**Remanejamento: um dos dois destinos basta.** Os dois textos explicativos foram
+removidos, e obra de destino e responsável deixaram de ser os dois obrigatórios:
+
+- **só responsável** → a ferramenta fica com ele e aparece na **Localização** no
+  nome dele; ele devolve pela aba "Estou devolvendo"
+- **só obra** → entra na **O.S.** daquela obra e é exigida na devolutiva de lá
+- **os dois** → entra na O.S. e o responsável assina o recebimento
+
+**A tela de recebimento ocupa a tela toda.** O vermelho encostava nas bordas
+menos numa faixa de ~6px à direita (a barra de rolagem da página de trás) — o
+scroll do fundo agora é travado enquanto o termo está aberto. E tudo **cabe sem
+rolar**: o cartão virou três faixas (topo, miolo rolável, rodapé), com o check
+"Estou de acordo" e o "Confirmar" sempre à vista, no desktop e no celular.

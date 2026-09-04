@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Redefinir Senha - LWN Control</title>
+    <title>Recuperar Senha - LWN Control</title>
     <link rel="stylesheet" href="almoxarife.css">
     <link rel="icon" href="/assets/app-icon-192.png" type="image/png">
     <style>
@@ -235,30 +235,47 @@
             <img class="logo-escuro" src="../assets/LogoLWNWhite.webp" alt="LWN Engenharia" onerror="this.style.display='none'">
         </div>
 
-        <h1>Redefinir Senha</h1>
-        <p class="subtitle">Informe seu CPF e o código de 6 dígitos recebido</p>
+        <h1 id="titulo">Esqueceu sua senha?</h1>
+        <p class="subtitle" id="subtitulo">Informe seu e-mail ou CPF para receber um código.</p>
 
         <div id="mensagem" class="mensagem"></div>
 
-        <form id="form-redefinir" onsubmit="redefinirSenha(event)">
+        <!-- PASSO 1 — QUEM É VOCÊ
+             O código sempre vai para o E-MAIL CADASTRADO, mesmo quando a
+             pessoa se identifica pelo CPF: informar o CPF não permite
+             escolher para onde o código é enviado. -->
+        <form id="passo-identificar" onsubmit="pedirCodigo(event)">
             <div class="form-group">
-                <label class="form-label" for="cpf">CPF (somente números)</label>
-                <input type="text" id="cpf" class="form-input" placeholder="Ex: 12345678900" required maxlength="11" inputmode="numeric" oninput="this.value = this.value.replace(/\D/g, '')">
+                <label class="form-label" for="identificador">E-mail ou CPF</label>
+                <input type="text" id="identificador" class="form-input" required
+                       placeholder="email@lwnengenharia.com.br ou 12345678900"
+                       autocomplete="username" autocapitalize="off" spellcheck="false">
             </div>
 
+            <div class="requisitos">
+                O código de 6 dígitos vai para o e-mail cadastrado no seu perfil.
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="btn-pedir">Enviar código</button>
+        </form>
+
+        <!-- PASSO 2 — O CÓDIGO E A SENHA NOVA -->
+        <form id="passo-redefinir" style="display:none;" onsubmit="redefinirSenha(event)">
             <div class="form-group">
                 <label class="form-label" for="codigo">Código de 6 dígitos</label>
-                <input type="text" id="codigo" class="form-input" placeholder="Ex: 123456" required maxlength="6" inputmode="numeric" oninput="this.value = this.value.replace(/\D/g, '')">
+                <input type="text" id="codigo" class="form-input" placeholder="Ex: 123456" required
+                       maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+                       oninput="this.value = this.value.replace(/\D/g, '')">
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="nova_senha">Nova Senha</label>
-                <input type="password" id="nova_senha" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+                <input type="password" id="nova_senha" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="new-password">
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="confirmar_senha">Confirmar Nova Senha</label>
-                <input type="password" id="confirmar_senha" class="form-input" placeholder="Digite a senha novamente" required minlength="6">
+                <input type="password" id="confirmar_senha" class="form-input" placeholder="Digite a senha novamente" required minlength="6" autocomplete="new-password">
             </div>
 
             <div class="requisitos">
@@ -266,9 +283,10 @@
             </div>
 
             <button type="submit" class="btn btn-primary" id="btn-redefinir">Redefinir Senha</button>
+            <button type="button" class="btn btn-outline" onclick="voltarAoPasso1()" style="margin-top:0.6rem;">Não recebi o código</button>
         </form>
 
-        <button class="btn btn-outline" type="button" onclick="voltarPaginaAnterior()">Voltar</button>
+        <button class="btn btn-outline" type="button" onclick="voltarPaginaAnterior()">Voltar ao login</button>
     </div>
 
     <script>
@@ -306,35 +324,110 @@
             : `https://${window.location.hostname}/api`;
 
         // ============================================================
-        // FUNÇÃO PRINCIPAL DE REDEFINIÇÃO DE SENHA
+        // RECUPERAÇÃO DE SENHA — EM DOIS PASSOS
+        //
+        //   1. a pessoa informa o e-mail OU o CPF, e o servidor manda um
+        //      código de 6 dígitos para o e-mail CADASTRADO dela;
+        //   2. ela volta aqui com o código e escolhe a senha nova.
+        //
+        // O CPF serve só para achar o cadastro: o código vai sempre para o
+        // e-mail do perfil, nunca para um endereço informado na hora.
+        //
+        // O identificador do passo 1 é guardado em memória e reenviado no
+        // passo 2 — o servidor precisa dele para saber de quem é o código, e
+        // pedir de novo à pessoa seria repetição sem motivo.
+        // ============================================================
+        let identificadorInformado = '';
+
+        async function pedirCodigo(event) {
+            event.preventDefault();
+
+            const identificador = document.getElementById('identificador').value.trim();
+            const btn = document.getElementById('btn-pedir');
+
+            if (!identificador) {
+                mostrarMensagem("Informe o seu e-mail ou CPF.", "erro");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            document.getElementById('mensagem').style.display = 'none';
+
+            try {
+                const resposta = await fetch(`${API_URL}/senha/solicitar-codigo`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                    body: JSON.stringify({ identificador })
+                });
+                const resultado = await resposta.json();
+
+                if (!resposta.ok) {
+                    // "Sem e-mail cadastrado" é o único caso em que a pessoa
+                    // precisa procurar alguém — e o texto já diz isso.
+                    throw new Error(resultado.erro || "Não foi possível enviar o código.");
+                }
+
+                identificadorInformado = identificador;
+                irParaPasso2(resultado.email_mascarado, resultado.expira_em_minutos);
+
+            } catch (erro) {
+                console.error("Erro ao pedir o código:", erro);
+                mostrarMensagem(erro.message, "erro");
+                btn.disabled = false;
+                btn.textContent = 'Enviar código';
+            }
+        }
+
+        function irParaPasso2(emailMascarado, minutos) {
+            document.getElementById('passo-identificar').style.display = 'none';
+            document.getElementById('passo-redefinir').style.display = 'block';
+            document.getElementById('titulo').textContent = 'Digite o código';
+            document.getElementById('subtitulo').textContent = emailMascarado
+                ? `Enviamos um código para ${emailMascarado}.`
+                : 'Se este cadastro existir, o código foi enviado para o e-mail cadastrado.';
+
+            mostrarMensagem(
+                `Confira a sua caixa de entrada${minutos ? ` — o código vale por ${minutos} minutos` : ''}. `
+                + 'Se não estiver lá, veja no lixo eletrônico.',
+                'sucesso'
+            );
+            setTimeout(() => document.getElementById('codigo').focus(), 80);
+        }
+
+        function voltarAoPasso1() {
+            document.getElementById('passo-redefinir').style.display = 'none';
+            document.getElementById('passo-identificar').style.display = 'block';
+            document.getElementById('titulo').textContent = 'Esqueceu sua senha?';
+            document.getElementById('subtitulo').textContent = 'Informe seu e-mail ou CPF para receber um código.';
+            document.getElementById('mensagem').style.display = 'none';
+
+            const btn = document.getElementById('btn-pedir');
+            btn.disabled = false;
+            btn.textContent = 'Enviar código';
+            document.getElementById('codigo').value = '';
+            setTimeout(() => document.getElementById('identificador').focus(), 80);
+        }
+
+        // ============================================================
+        // PASSO 2 — O CÓDIGO E A SENHA NOVA
         // ============================================================
         async function redefinirSenha(event) {
             event.preventDefault();
 
-            const cpf = document.getElementById('cpf').value.trim();
             const codigo = document.getElementById('codigo').value.trim();
             const novaSenha = document.getElementById('nova_senha').value;
             const confirmarSenha = document.getElementById('confirmar_senha').value;
-
-            const mensagem = document.getElementById('mensagem');
             const btn = document.getElementById('btn-redefinir');
 
-            // Validações
-            if (!cpf || cpf.length !== 11) {
-                mostrarMensagem("Digite um CPF válido com 11 dígitos.", "erro");
-                return;
-            }
-
             if (!codigo || codigo.length !== 6) {
-                mostrarMensagem("Digite o código de 6 dígitos.", "erro");
+                mostrarMensagem("Digite o código de 6 dígitos que chegou no seu e-mail.", "erro");
                 return;
             }
-
             if (!novaSenha || novaSenha.length < 6) {
                 mostrarMensagem("A senha deve ter pelo menos 6 caracteres.", "erro");
                 return;
             }
-
             if (novaSenha !== confirmarSenha) {
                 mostrarMensagem("As senhas não coincidem.", "erro");
                 return;
@@ -342,42 +435,28 @@
 
             btn.disabled = true;
             btn.textContent = 'Processando...';
-            mensagem.style.display = 'none';
+            document.getElementById('mensagem').style.display = 'none';
 
             try {
-                const dados = {
-                    cpf: cpf,
-                    codigo: codigo,
-                    nova_senha: novaSenha
-                };
-
-                const resposta = await fetch(`${API_URL}/usuarios/validar-codigo`, {
+                const resposta = await fetch(`${API_URL}/senha/redefinir`, {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify(dados)
+                    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                    body: JSON.stringify({
+                        identificador: identificadorInformado,
+                        codigo: codigo,
+                        nova_senha: novaSenha
+                    })
                 });
-
                 const resultado = await resposta.json();
-
-                if (!resposta.ok) {
-                    throw new Error(resultado.erro || "Erro ao redefinir senha");
-                }
+                if (!resposta.ok) throw new Error(resultado.erro || "Erro ao redefinir senha");
 
                 mostrarMensagem(resultado.mensagem || "Senha redefinida com sucesso!", "sucesso");
-
-                document.getElementById('cpf').value = '';
-                document.getElementById('codigo').value = '';
-                document.getElementById('nova_senha').value = '';
-                document.getElementById('confirmar_senha').value = '';
-
+                ['codigo', 'nova_senha', 'confirmar_senha'].forEach(id => {
+                    document.getElementById(id).value = '';
+                });
                 btn.textContent = 'Concluído';
 
-                setTimeout(() => {
-                    window.location.href = '../index.html';
-                }, 3000);
+                setTimeout(() => { window.location.href = '../index.html'; }, 2500);
 
             } catch (erro) {
                 console.error("Erro ao redefinir senha:", erro);
@@ -403,6 +482,15 @@
         function voltarPaginaAnterior() {
             window.location.href = '../index.html';
         }
+
+        // A tela de login manda o e-mail/CPF já digitado — quem chegou aqui de
+        // lá não precisa digitar duas vezes.
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            const vindo = params.get('email') || params.get('identificador');
+            if (vindo) document.getElementById('identificador').value = vindo;
+            setTimeout(() => document.getElementById('identificador').focus(), 100);
+        })();
     </script>
 </body>
 </html>

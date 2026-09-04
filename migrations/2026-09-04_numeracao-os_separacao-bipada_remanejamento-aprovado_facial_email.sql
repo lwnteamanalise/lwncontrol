@@ -226,3 +226,35 @@ COMMIT;
 --   GET /api/email/estado     diz o que falta e se o Azure aceita as credenciais
 --   GET /api/outlook/estado   diz se a entrada com Outlook está de pé
 -- ============================================================================
+
+-- ============================================================================
+-- ADENDO — segunda rodada de 04/09
+--
+-- 9. RECUPERAÇÃO DE SENHA PELO E-MAIL
+--
+-- A tabela `codigos_recuperacao` continua a mesma; o que mudou foi quem pede o
+-- código e por onde ele chega. Antes um administrador gerava o número na aba
+-- Colaboradores e ditava para a pessoa; agora o próprio colaborador pede na
+-- tela de login e o código vai para o e-mail cadastrado dele.
+--
+--   Rotas removidas:  POST /api/usuarios/:id/gerar-codigo
+--                     POST /api/usuarios/validar-codigo
+--   Rotas novas:      POST /api/senha/solicitar-codigo { identificador }
+--                     POST /api/senha/redefinir { identificador, codigo, nova_senha }
+--
+-- A validade subiu de 1 minuto para 15 (o código agora precisa atravessar a
+-- fila do e-mail), e redefinir a senha apaga as sessões persistentes daquele
+-- usuário — quem tinha o acesso antigo num aparelho perdido para de entrar.
+--
+-- Depende de OUTLOOK_REMETENTE estar configurado: sem ele o servidor recusa o
+-- pedido com uma mensagem clara em vez de dizer que enviou.
+
+-- 10. UM DOS DOIS DESTINOS BASTA (remanejamento)
+--
+-- Nada muda no schema. `destinatario` e `os_destino_id` continuam existindo, e
+-- a exigência passou de "os dois" para "pelo menos um":
+--
+--   só destinatario  -> a ferramenta fica com a pessoa; `destino` recebe
+--                       "Com <nome>", que é o que a Localização mostra
+--   só os_destino_id -> entra na O.S. daquela obra
+--   os dois          -> entra na O.S. e a pessoa assina o recebimento

@@ -952,15 +952,18 @@
                         </div>
                         <div class="card-body">
                             <!-- Quem passa a ferramenta é quem monta o
-                                 remanejamento: de onde ela sai, para quem vai e
-                                 para qual obra. Nada disso é decidido por
-                                 outra pessoa antes — o que sai daqui é uma
+                                 remanejamento. O que sai daqui é uma
                                  SOLICITAÇÃO, que precisa do aval de quem tem a
-                                 permissão "Aprovar remanejamento". -->
-                            <div style="font-size:0.78rem;color:var(--text-muted);border:1px dashed var(--border-color);border-radius:0.5rem;padding:0.55rem 0.75rem;margin-bottom:0.8rem;">
-                                Preencha de onde a ferramenta sai, para quem vai e para qual obra, bipe as
-                                ferramentas e envie. A ferramenta <strong>só sai da obra depois da aprovação</strong>.
-                            </div>
+                                 permissão "Aprovar remanejamento".
+
+                                 DOS DOIS DESTINOS, UM BASTA:
+                                   só responsável -> a ferramenta fica com ele e
+                                                     aparece na Localização no
+                                                     nome dele
+                                   só obra        -> entra na O.S. daquela obra
+                                   os dois        -> entra na O.S. e o
+                                                     responsável assina o
+                                                     recebimento -->
                             <div class="form-grid" style="margin-bottom:1rem;">
                                 <div class="form-group">
                                     <label class="form-label">Obra de Origem <span style="color:var(--danger,#ef4444);">*</span></label>
@@ -969,13 +972,13 @@
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label class="form-label" style="white-space:normal;">Responsável (quem vai receber) <span style="color:var(--danger,#ef4444);">*</span></label>
+                                    <label class="form-label" style="white-space:normal;">Responsável (quem vai receber)</label>
                                     <select id="rem-tec-entrega" class="form-select" onchange="remAtualizarObrigatorios()">
                                         <option value="">Selecione o responsável</option>
                                     </select>
                                 </div>
                                 <div class="form-group form-grid-full">
-                                    <label class="form-label">Obra de Destino <span style="color:var(--danger,#ef4444);">*</span></label>
+                                    <label class="form-label">Obra de Destino</label>
                                     <select id="rem-obra-destino" class="form-select" style="width:100%;" onchange="remAtualizarObrigatorios()">
                                         <option value="">— Selecione a Obra —</option>
                                     </select>

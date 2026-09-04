@@ -2889,12 +2889,14 @@ function renderUsuariosTable(targetId) {
         badgeClass = 'badge-cargo';
         badgeStyle = `background: color-mix(in srgb, ${corCargo} 14%, transparent); color: ${corCargo}; font-weight:700; border:none;`;
 
-        // Ações (Gerar Código) - sempre visíveis
-        const acoesHtml = `
-            <button class="btn btn-primary btn-sm"onclick="gerarCodigoRecuperacao(${u.id}, '${u.nome}', '${u.cpf || ''}')"style="padding: 0.2rem 0.5rem; font-size: 0.7rem;"title="Gerar código de recuperação de senha">
-                 Gerar Código
-            </button>
-        `;
+        // "Gerar Código" saiu daqui.
+        //
+        // Redefinir senha dependia de um administrador ler um número na tela e
+        // passar para a pessoa por telefone. Agora o próprio colaborador pede,
+        // na tela de login ("Esqueceu sua senha?"), e o código de 6 dígitos vai
+        // direto para o e-mail cadastrado dele — ninguém mais precisa
+        // intermediar, e o código não passa por WhatsApp.
+        const acoesHtml = '';
 
         return `
             <tr>
@@ -9060,6 +9062,9 @@ document.addEventListener('visibilitychange', () => {
 // ATUALIZAR SAUDAÇÃO COM NOME DO USUÁRIO
 // ============================================================
 function atualizarSaudacao() {
+    // O avatar ao lado da saudação foi removido. Esta linha limpa o que uma
+    // aba aberta desde antes da mudança ainda tenha na tela.
+    document.getElementById('perfil-foto')?.remove();
     try {
         const user = JSON.parse(sessionStorage.getItem('lwn_user') || '{}');
         const nome = user.nome || 'Usuário';
@@ -9078,344 +9083,20 @@ function atualizarSaudacao() {
             nameEl.textContent = nome;
         }
 
-        renderFotoPerfil(user);
     } catch (e) {
         console.warn("Erro ao atualizar saudação:", e);
     }
 }
 
-// ============================================================
-// FOTO DO PERFIL
-//
-// Ela vem da conta Microsoft, quando o colaborador entra pelo Outlook (ver
-// api/outlook.js). Quem entra por senha vê a foto assim que tiver entrado
-// pelo Outlook uma vez — ela fica guardada no cadastro dele.
-//
-// Sem foto, o lugar mostra as INICIAIS. Não há imagem de "usuário genérico"
-// de propósito: um avatar cinza igual para todo mundo não diz nada, e as
-// iniciais pelo menos identificam quem está logado.
-// ============================================================
-function iniciaisDoNome(nome) {
-    const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
-    if (!partes.length) return '?';
-    if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
-    return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
-}
-window.iniciaisDoNome = iniciaisDoNome;
-
-function renderFotoPerfil(user) {
-    const alvo = document.getElementById('dash-user-name');
-    if (!alvo || !alvo.parentElement) return;
-
-    let box = document.getElementById('perfil-foto');
-    if (!box) {
-        box = document.createElement('span');
-        box.id = 'perfil-foto';
-        box.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;'
-            + 'width:2.4rem;height:2.4rem;border-radius:50%;overflow:hidden;flex-shrink:0;'
-            + 'margin-right:0.6rem;vertical-align:middle;background:var(--primary);color:#fff;'
-            + 'font-size:0.85rem;font-weight:800;letter-spacing:0.02em;';
-        alvo.parentElement.insertBefore(box, alvo.parentElement.firstChild);
-    }
-
-    const foto = user && user.foto;
-    if (foto) {
-        box.innerHTML = `<img src="${String(foto).replace(/"/g, '&quot;')}" alt=""`
-            + ' style="width:100%;height:100%;object-fit:cover;display:block;">';
-        box.title = 'Foto do perfil da sua conta Microsoft';
-    } else {
-        box.textContent = iniciaisDoNome(user && user.nome);
-        box.title = user && user.nome ? user.nome : '';
-    }
-}
-window.renderFotoPerfil = renderFotoPerfil;
 
 setInterval(() => { try { atualizarSaudacao(); } catch (e) {} }, 60000);
 
-// ============================================================
-// FUNÇÃO PARA GERAR CÓDIGO DE RECUPERAÇÃO (COM PERSISTÊNCIA)
-// ============================================================
-let timerIntervalCodigo = null;
-let codigoAtual = null; // Armazena o código atual para evitar regeneração
-
-// ============================================================
-// FUNÇÃO PARA FORMATAR CPF
-// ============================================================
-function formatarCpf(cpf) {
-    if (!cpf) return '---';
-    // Remove tudo que não é número
-    const numeros = cpf.replace(/\D/g, '');
-    // Verifica se tem 11 dígitos
-    if (numeros.length !== 11) return cpf;
-    // Aplica a máscara: 123.456.789-10
-    return numeros.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-}
-
-async function gerarCodigoRecuperacao(usuarioId, nome, cpf) {
-    console.log("Gerando/obtendo código para:", nome, "CPF:", cpf);
-    
-    // Verificar se já existe um código ativo para este usuário
-    try {
-        // Primeiro, verificar se o usuário já tem um código ativo no banco
-        const resposta = await fetch(`${API_URL}/usuarios/${usuarioId}/gerar-codigo`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ forcar_novo: false }) // NÃO força novo código
-        });
-
-        if (!resposta.ok) {
-            const erro = await resposta.json();
-            throw new Error(erro.erro || "Erro ao gerar código");
-        }
-
-        const dados = await resposta.json();
-        
-        // Mostrar o código em um modal com timer
-        mostrarCodigoRecuperacao(dados, usuarioId);
-        
-    } catch (erro) {
-        console.error("Erro:", erro);
-        showToast("Erro ao gerar código: " + erro.message, "danger");
-    }
-}
-
-// ============================================================
-// FUNÇÃO PARA EXIBIR O CÓDIGO GERADO COM TIMER (CPF FORMATADO)
-// ============================================================
-function mostrarCodigoRecuperacao(dados, usuarioId) {
-    // Se o modal já existe, apenas atualiza o timer se necessário
-    const existing = document.getElementById('codigo-modal');
-    if (existing) {
-        // Se o código ainda é válido, não recria o modal
-        if (dados.tempo_restante >0 && dados.reutilizado) {
-            return;
-        }
-        if (timerIntervalCodigo) {
-            clearInterval(timerIntervalCodigo);
-            timerIntervalCodigo = null;
-        }
-        existing.remove();
-    }
-
-    let segundosRestantes = dados.tempo_restante || 60;
-    
-    // Formatar CPF
-    const cpfFormatado = formatarCpf(dados.cpf);
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay active';
-    modal.id = 'codigo-modal';
-    modal.innerHTML = `
-        <div class="modal-container"style="max-width: 500px;">
-            <div class="modal-header">
-                <span class="modal-title">Código de Recuperação</span>
-                <button class="modal-close"onclick="fecharModalCodigo()">
-                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"style="width:1.25rem;height:1.25rem;"><line x1="18"y1="6"x2="6"y2="18"/><line x1="6"y1="6"x2="18"y2="18"/></svg>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div style="text-align: center; margin-bottom: 1.5rem;">
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                        Usuário: <strong style="color: var(--text-main);">${dados.usuario}</strong>
-                    </p>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                        CPF: <strong style="color: var(--text-main); font-family: monospace;">${cpfFormatado}</strong>
-                    </p>
-                    ${dados.reutilizado ? `<p style="font-size: 0.75rem; color: var(--info); margin-bottom: 0.5rem;">Código reutilizado (ainda válido)</p>` : ''}
-                    <div style="background: var(--bg-main); border: 2px solid var(--primary); border-radius: 0.75rem; padding: 1.5rem; margin: 1rem 0;">
-                        <span id="codigo-display"style="font-size: 2.8rem; font-weight: 900; color: var(--primary); letter-spacing: 0.1em; font-family: monospace;">
-                            ${dados.codigo}
-                        </span>
-                    </div>
-                    
-                    <!-- Timer -->
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin: 0.5rem 0;">
-                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"style="width:1.2rem;height:1.2rem;color:var(--text-muted);">
-                            <circle cx="12"cy="12"r="10"/>
-                            <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                        <span style="font-size: 0.9rem; color: var(--text-muted);">
-                            Válido por: 
-                            <span id="timer-segundos"style="font-weight: 800; color: var(--primary); font-size: 1.1rem;">
-                                ${segundosRestantes}
-                            </span>
-                            <span style="color: var(--text-muted);">s</span>
-                        </span>
-                    </div>
-                    
-                    <!-- Barra de progresso -->
-                    <div style="width: 100%; height: 4px; background: var(--bg-surface); border-radius: 2px; margin: 0.5rem 0 1rem; overflow: hidden;">
-                        <div id="timer-bar"style="width: ${(segundosRestantes / 60) * 100}%; height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.3s linear;"></div>
-                    </div>
-
-                    <div style="font-size: 0.75rem; color: var(--text-muted); background: var(--bg-surface); padding: 0.75rem; border-radius: 0.5rem; text-align: left;">
-                        <strong>Instruções:</strong><br>
-                        1. Informe este código e o CPF ao usuário.<br>
-                        2. O usuário deve acessar a página de <strong>Redefinição de Senha</strong>.<br>
-                        3.  O código expira em <strong>${segundosRestantes} segundos</strong>.
-                    </div>
-                </div>
-                
-                <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
-                    <button class="btn btn-outline btn-sm"onclick="copiarCodigo('${dados.codigo}')"style="font-size: 0.8rem;">
-                         Copiar Código
-                    </button>
-                    <button class="btn btn-outline btn-sm"onclick="copiarCodigo('${dados.cpf || ''}')"style="font-size: 0.8rem;">
-                         Copiar CPF
-                    </button>
-                    <button class="btn btn-primary btn-sm"onclick="gerarNovoCodigo(${usuarioId}, '${dados.usuario}')"style="font-size: 0.8rem;">
-                         Gerar Novo Código
-                    </button>
-                    <button class="btn btn-success btn-sm"onclick="window.open('redefinir-senha.html', '_blank')"style="font-size: 0.8rem;">
-                         Abrir Redefinição
-                    </button>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline"onclick="fecharModalCodigo()">Fechar</button>
-            </div>
-        </div>`;
-    document.body.appendChild(modal);
-
-    // Iniciar timer
-    iniciarTimerCodigo(segundosRestantes, usuarioId, dados.usuario);
-}
-
-// ============================================================
-// FUNÇÃO PARA INICIAR O TIMER
-// ============================================================
-function iniciarTimerCodigo(segundos, usuarioId, nome) {
-    if (timerIntervalCodigo) {
-        clearInterval(timerIntervalCodigo);
-        timerIntervalCodigo = null;
-    }
-
-    let segundosRestantes = segundos;
-    const timerElement = document.getElementById('timer-segundos');
-    const barElement = document.getElementById('timer-bar');
-    const codigoDisplay = document.getElementById('codigo-display');
-
-    timerIntervalCodigo = setInterval(() => {
-        segundosRestantes--;
-        
-        if (timerElement) {
-            timerElement.textContent = segundosRestantes;
-        }
-        
-        if (barElement) {
-            const porcentagem = (segundosRestantes / segundos) * 100;
-            barElement.style.width = Math.max(0, porcentagem) + '%';
-            
-            if (porcentagem < 20) {
-                barElement.style.background = 'var(--danger)';
-            } else if (porcentagem < 50) {
-                barElement.style.background = 'var(--warning)';
-            } else {
-                barElement.style.background = 'var(--primary)';
-            }
-        }
-
-        if (segundosRestantes <= 0) {
-            clearInterval(timerIntervalCodigo);
-            timerIntervalCodigo = null;
-            
-            if (timerElement) {
-                timerElement.textContent = '0';
-                timerElement.style.color = 'var(--danger)';
-            }
-            
-            if (codigoDisplay) {
-                codigoDisplay.style.color = 'var(--danger)';
-                codigoDisplay.style.textDecoration = 'line-through';
-            }
-            
-            showToast("O código expirou! Clique em 'Gerar Novo Código'para renovar.", "warning");
-        }
-    }, 1000);
-}
-
-// ============================================================
-// FUNÇÃO PARA FECHAR O MODAL
-// ============================================================
-function fecharModalCodigo() {
-    if (timerIntervalCodigo) {
-        clearInterval(timerIntervalCodigo);
-        timerIntervalCodigo = null;
-    }
-    const modal = document.getElementById('codigo-modal');
-    if (modal) modal.remove();
-}
-
-// ============================================================
-// FUNÇÃO PARA GERAR NOVO CÓDIGO (FORÇA NOVO)
-// ============================================================
-async function gerarNovoCodigo(usuarioId, nome) {
-    console.log("Gerando novo código para:", nome);
-    
-    try {
-        const resposta = await fetch(`${API_URL}/usuarios/${usuarioId}/gerar-codigo`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ forcar_novo: true })
-        });
-
-        if (!resposta.ok) {
-            const erro = await resposta.json();
-            throw new Error(erro.erro || "Erro ao gerar código");
-        }
-
-        const dados = await resposta.json();
-        
-        // Fechar modal atual e abrir com novo código
-        fecharModalCodigo();
-        mostrarCodigoRecuperacao(dados, usuarioId);
-        
-        showToast("Novo código gerado! Válido por 1 minuto.", "success");
-        
-    } catch (erro) {
-        console.error("Erro:", erro);
-        showToast("Erro ao gerar novo código: " + erro.message, "danger");
-    }
-}
-
-// ============================================================
-// FUNÇÃO PARA COPIAR O CÓDIGO
-// ============================================================
-function copiarCodigo(codigo) {
-    if (!codigo) {
-        showToast("Nada para copiar", "warning");
-        return;
-    }
-    
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(codigo).then(() => {
-            showToast("Código copiado para a área de transferência!", "success");
-        }).catch(() => {
-            copiarCodigoFallback(codigo);
-        });
-    } else {
-        copiarCodigoFallback(codigo);
-    }
-}
-
-function copiarCodigoFallback(codigo) {
-    const input = document.createElement('input');
-    input.value = codigo;
-    input.style.position = 'fixed';
-    input.style.opacity = '0';
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand('copy');
-    input.remove();
-    showToast("Código copiado!", "success");
-}
-
-// Funções de recuperação de senha
-window.gerarCodigoRecuperacao = gerarCodigoRecuperacao;
-window.mostrarCodigoRecuperacao = mostrarCodigoRecuperacao;
-window.copiarCodigo = copiarCodigo;
-window.fecharModalCodigo = fecharModalCodigo;
-window.gerarNovoCodigo = gerarNovoCodigo;
+// O bloco do "código de recuperação" foi removido daqui.
+//
+// Ele montava um modal com o código, um cronômetro de 1 minuto e botões de
+// copiar — tudo para o administrador ditar o número para o colaborador. Esse
+// caminho deixou de existir: quem esquece a senha resolve sozinho na tela de
+// login, e o código chega no e-mail dele (POST /api/senha/solicitar-codigo).
 
 // ============================================================
 // FUNÇÃO PARA ABRIR MODAL DE CADASTRO DE USUÁRIO
@@ -14354,12 +14035,20 @@ function remAtualizarObrigatorios() {
     const temObra = !!(selObra && selObra.value);
     const temResp = !!(selResp && selResp.value);
 
+    // UM DOS DOIS BASTA — e cada combinação leva a um lugar diferente, então
+    // o aviso diz qual regra está valendo agora, e não uma cobrança genérica.
     let texto;
     if (temObra && temResp) {
         texto = 'A ferramenta passa a pertencer à O.S. escolhida e será exigida na devolutiva dela. '
-              + 'Quem você indicou é quem vai assinar o recebimento.';
+              + 'Quem você indicou é quem vai assinar o recebimento e responde por ela até lá.';
+    } else if (temObra) {
+        texto = 'Sem responsável informado: a ferramenta entra direto na O.S. escolhida e será '
+              + 'exigida na devolutiva dela.';
+    } else if (temResp) {
+        texto = 'Sem obra de destino: a ferramenta fica com o responsável, aparece na Localização '
+              + 'no nome dele, e ele devolve pela aba "Estou devolvendo".';
     } else {
-        texto = 'Informe a obra de destino e quem vai receber: os dois são obrigatórios para enviar a solicitação.';
+        texto = 'Informe a obra de destino OU quem vai receber — um dos dois basta.';
     }
     aviso.textContent = texto;
     aviso.style.color = (temObra || temResp) ? 'var(--text-muted)' : 'var(--danger, #ef4444)';
@@ -14812,13 +14501,11 @@ async function submitRemPassando() {
         document.getElementById('rem-origem')?.focus();
         return;
     }
-    if (!destinatario) {
-        showToast('Informe quem vai receber a ferramenta.', 'danger');
-        document.getElementById('rem-tec-entrega')?.focus();
-        return;
-    }
-    if (!osDestinoId) {
-        showToast('Selecione a obra de destino.', 'danger');
+    // Um dos dois destinos basta: a ferramenta pode ir para uma obra, para
+    // uma pessoa, ou para as duas coisas. O que não pode é não ir para
+    // lugar nenhum.
+    if (!destinatario && !osDestinoId) {
+        showToast('Informe a obra de destino ou quem vai receber — um dos dois basta.', 'danger');
         document.getElementById('rem-obra-destino')?.focus();
         return;
     }
@@ -14837,9 +14524,12 @@ async function submitRemPassando() {
             body: JSON.stringify({
                 itens: remItensBipados.map(i => ({ ferramenta_id: i.id, tag: i.tag })),
                 origem,
-                destino: nomeObraDestino || null,
-                os_destino_id: parseInt(osDestinoId),
-                destinatario,
+                // Sem obra de destino, o "destino" do movimento passa a ser a
+                // pessoa: é esse texto que a Localização mostra como o lugar
+                // onde a ferramenta está.
+                destino: nomeObraDestino || (destinatario ? `Com ${destinatario}` : null),
+                os_destino_id: osDestinoId ? parseInt(osDestinoId) : null,
+                destinatario: destinatario || null,
                 solicitado_por: eu.nome || null,
                 solicitado_por_id: eu.id || null,
                 observacao
@@ -15176,11 +14866,69 @@ function remGarantirEstiloEmergencia() {
             0%, 100% { opacity: 0.85; }
             50%      { opacity: 1;    }
         }
+
+        /* A TELA INTEIRA, sem sobra.
+
+           Este modal vive DENTRO de um iframe que nem sempre ocupa toda a
+           janela, e o padding do overlay deixava uma faixa clara em volta. O
+           vermelho agora é uma camada fixa em inset:0, sem padding nenhum, e o
+           espaçamento passou para dentro do cartão. */
+        #rem-termo-modal {
+            position: fixed; inset: 0; z-index: 4000;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; overflow: hidden;
+        }
         #rem-termo-modal .rem-termo-fundo {
+            position: fixed; inset: 0;
             background: linear-gradient(120deg, #7f1d1d, #dc2626, #b91c1c, #ef4444, #991b1b);
             background-size: 400% 400%;
             animation: remEmergenciaFundo 7s ease infinite;
         }
+
+        /* CABE NA TELA, SEM ROLAR A PÁGINA.
+
+           O cartão é uma coluna de altura limitada: cabeçalho e rodapé ficam
+           parados, e só o miolo rola — assim o "Confirmar" está sempre à vista,
+           que é o ponto: ninguém deve ter de descer a tela para assinar.
+
+           A altura usa 100dvh (dynamic viewport height) porque no celular a
+           barra do navegador entra e sai; com 100vh o rodapé ficava escondido
+           atrás dela. O 100vh antes é o reserva para navegador antigo. */
+        #rem-termo-modal .rem-termo-cartao {
+            position: relative;
+            display: flex; flex-direction: column;
+            width: 100%; max-width: 620px;
+            max-height: 100vh; max-height: 100dvh;
+            margin: 0 auto;
+            background: rgba(0,0,0,0.42);
+            backdrop-filter: blur(3px);
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 0.9rem;
+            box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+            color: #fff;
+            overflow: hidden;
+        }
+        #rem-termo-modal .rem-termo-topo,
+        #rem-termo-modal .rem-termo-rodape { flex-shrink: 0; }
+        #rem-termo-modal .rem-termo-corpo {
+            flex: 1 1 auto; min-height: 0; overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Numa janela alta sobra espaço: o cartão descola das bordas. */
+        @media (min-height: 720px) {
+            #rem-termo-modal { padding: 1rem; }
+            #rem-termo-modal .rem-termo-cartao { max-height: calc(100dvh - 2rem); }
+        }
+
+        /* Em tela baixa tudo encolhe para o rodapé continuar visível. */
+        @media (max-height: 640px) {
+            #rem-termo-modal .rem-termo-cartao { border-radius: 0; border: none; }
+            #rem-termo-modal .rem-termo-compacto { display: none; }
+            #rem-termo-modal .rem-termo-corpo { padding-top: 0.7rem; padding-bottom: 0.7rem; }
+            #rem-termo-modal textarea { rows: 2; }
+        }
+
         #rem-termo-modal .rem-termo-selo {
             animation: remEmergenciaPulso 1.6s ease-in-out infinite;
         }
@@ -15208,81 +14956,112 @@ function remAbrirTermoRecebimento(rem) {
 
     const modal = document.createElement('div');
     modal.id = 'rem-termo-modal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:4000;display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto;';
     modal.innerHTML = `
-        <div class="rem-termo-fundo" style="position:absolute;inset:0;"></div>
-        <div style="position:relative;width:100%;max-width:620px;margin:auto;background:rgba(0,0,0,0.42);backdrop-filter:blur(3px);border:1px solid rgba(255,255,255,0.35);border-radius:0.9rem;box-shadow:0 24px 70px rgba(0,0,0,0.55);color:#fff;">
+        <div class="rem-termo-fundo"></div>
+        <div class="rem-termo-cartao">
 
-            <div style="display:flex;align-items:center;gap:0.7rem;padding:1.1rem 1.35rem 0.8rem;border-bottom:1px solid rgba(255,255,255,0.25);">
-                <span class="rem-termo-selo" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:2.6rem;height:2.6rem;border-radius:50%;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.5);">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" style="width:1.4rem;height:1.4rem;">
+            <div class="rem-termo-topo" style="display:flex;align-items:center;gap:0.7rem;padding:0.85rem 1.2rem 0.7rem;border-bottom:1px solid rgba(255,255,255,0.25);">
+                <span class="rem-termo-selo" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:2.3rem;height:2.3rem;border-radius:50%;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.5);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" style="width:1.25rem;height:1.25rem;">
                         <path d="M12 9v4"/><path d="M12 17h.01"/>
                         <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                     </svg>
                 </span>
                 <div style="min-width:0;">
-                    <div style="font-size:1.12rem;font-weight:900;letter-spacing:0.01em;">Termo de responsabilidade</div>
-                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.85);">
+                    <div style="font-size:1.02rem;font-weight:900;letter-spacing:0.01em;">Termo de responsabilidade</div>
+                    <div style="font-size:0.78rem;color:rgba(255,255,255,0.85);">
                         ${baiaEscapar(eu.nome || 'Você')}, você está assumindo ${(rem.instrumentos || []).length} ferramenta(s).
                     </div>
                 </div>
             </div>
 
-            <div style="padding:1.05rem 1.35rem;">
+            <div class="rem-termo-corpo" style="padding:0.85rem 1.2rem;">
 
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.45rem;font-size:0.82rem;margin-bottom:0.9rem;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;font-size:0.8rem;margin-bottom:0.7rem;">
                     <div><strong>Obra de origem:</strong> ${baiaEscapar(rem.obra_origem || '—')}</div>
                     <div><strong>Enviado por:</strong> ${baiaEscapar(rem.enviado_por || rem.remetente_nome || '—')}</div>
                     ${destino ? `<div style="grid-column:span 2;"><strong>Vai responder pela O.S.:</strong> ${baiaEscapar(destino)}</div>` : ''}
                 </div>
 
-                <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.95rem;">${tags}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.75rem;">${tags}</div>
 
-                <div style="border:1px solid rgba(255,255,255,0.45);background:rgba(0,0,0,0.28);border-radius:0.6rem;padding:0.8rem 0.95rem;margin-bottom:0.9rem;font-size:0.84rem;line-height:1.55;">
-                    Ao confirmar, <strong>a responsabilidade total por estas ferramentas passa a ser sua</strong>.
-                    Elas ficam registradas no seu nome até serem devolvidas.
-                    <br><br>
-                    Se alguma delas for devolvida com qualquer tipo de avaria e essa avaria
-                    <strong>não estiver escrita nas observações abaixo</strong>, ela será
-                    considerada responsabilidade sua.
-                    <br><br>
-                    <strong>Confira as ferramentas agora</strong> e anote tudo o que já vier
-                    danificado, riscado, faltando peça ou fora de funcionamento.
+                <div style="border:1px solid rgba(255,255,255,0.45);background:rgba(0,0,0,0.28);border-radius:0.6rem;padding:0.65rem 0.8rem;margin-bottom:0.7rem;font-size:0.81rem;line-height:1.5;">
+                    Ao confirmar, <strong>a responsabilidade total por estas ferramentas passa a ser sua</strong> —
+                    elas ficam registradas no seu nome até serem devolvidas.
+                    <span class="rem-termo-compacto"><br><br></span>
+                    Avaria devolvida <strong>sem estar escrita nas observações abaixo</strong> será
+                    considerada responsabilidade sua. <strong>Confira as ferramentas agora</strong> e
+                    anote tudo o que já vier danificado, riscado, faltando peça ou fora de funcionamento.
                 </div>
 
-                <label class="form-label" for="rem-termo-obs" style="display:block;font-size:0.8rem;font-weight:800;margin-bottom:0.3rem;color:#fff;">
+                <label class="form-label" for="rem-termo-obs" style="display:block;font-size:0.78rem;font-weight:800;margin-bottom:0.25rem;color:#fff;">
                     Observações — avarias que a ferramenta já apresenta <span style="font-weight:600;color:rgba(255,255,255,0.8);">(opcional)</span>
                 </label>
-                <textarea id="rem-termo-obs" rows="3"
+                <textarea id="rem-termo-obs" rows="2"
                           placeholder="Ex.: AIF-02 chegou com a tampa da bateria quebrada e sem o cabo USB."
-                          style="width:100%;box-sizing:border-box;padding:0.55rem 0.7rem;border:1px solid rgba(255,255,255,0.5);border-radius:0.5rem;background:rgba(0,0,0,0.3);color:#fff;font-size:0.85rem;font-family:inherit;resize:vertical;"></textarea>
-                <div style="font-size:0.73rem;color:rgba(255,255,255,0.8);margin-top:0.25rem;margin-bottom:0.9rem;">
+                          style="width:100%;box-sizing:border-box;padding:0.5rem 0.65rem;border:1px solid rgba(255,255,255,0.5);border-radius:0.5rem;background:rgba(0,0,0,0.3);color:#fff;font-size:0.84rem;font-family:inherit;resize:vertical;"></textarea>
+                <div class="rem-termo-compacto" style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-top:0.2rem;">
                     Deixando em branco, você declara que recebeu tudo em ordem.
                 </div>
-
-                <label for="rem-termo-check" style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;border:1px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.1);border-radius:0.55rem;padding:0.7rem 0.85rem;">
-                    <input type="checkbox" id="rem-termo-check" onchange="remTermoAtualizarBotao()"
-                           style="width:1.2rem;height:1.2rem;flex-shrink:0;margin-top:0.05rem;accent-color:#fff;cursor:pointer;">
-                    <span style="font-size:0.88rem;font-weight:800;">Estou de acordo</span>
-                </label>
             </div>
 
-            <div style="display:flex;gap:0.6rem;justify-content:flex-end;flex-wrap:wrap;padding:0.9rem 1.35rem;border-top:1px solid rgba(255,255,255,0.25);">
-                <button type="button" onclick="document.getElementById('rem-termo-modal')?.remove();"
-                        style="padding:0.55rem 1.2rem;border:1px solid rgba(255,255,255,0.6);border-radius:0.5rem;background:transparent;color:#fff;font-weight:700;font-size:0.85rem;cursor:pointer;">Cancelar</button>
-                <button type="button" id="rem-termo-confirmar" disabled onclick="remTermoConfirmar()"
-                        style="padding:0.55rem 1.4rem;border:none;border-radius:0.5rem;background:#fff;color:#b91c1c;font-weight:900;font-size:0.85rem;cursor:pointer;opacity:0.45;">Confirmar</button>
+            <div class="rem-termo-rodape" style="padding:0.7rem 1.2rem 0.85rem;border-top:1px solid rgba(255,255,255,0.25);">
+                <!-- O check fica no RODAPÉ, junto do botão que ele libera: no
+                     corpo rolável ele podia sair de vista, e o usuário via um
+                     "Confirmar" apagado sem entender o porquê. -->
+                <label for="rem-termo-check" style="display:flex;align-items:center;gap:0.55rem;cursor:pointer;border:1px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.1);border-radius:0.5rem;padding:0.55rem 0.75rem;margin-bottom:0.6rem;">
+                    <input type="checkbox" id="rem-termo-check" onchange="remTermoAtualizarBotao()"
+                           style="width:1.15rem;height:1.15rem;flex-shrink:0;accent-color:#fff;cursor:pointer;">
+                    <span style="font-size:0.86rem;font-weight:800;">Estou de acordo</span>
+                </label>
+                <div style="display:flex;gap:0.6rem;justify-content:flex-end;flex-wrap:wrap;">
+                    <button type="button" onclick="remTermoFechar()"
+                            style="padding:0.5rem 1.15rem;border:1px solid rgba(255,255,255,0.6);border-radius:0.5rem;background:transparent;color:#fff;font-weight:700;font-size:0.85rem;cursor:pointer;">Cancelar</button>
+                    <button type="button" id="rem-termo-confirmar" disabled onclick="remTermoConfirmar()"
+                            style="padding:0.5rem 1.35rem;border:none;border-radius:0.5rem;background:#fff;color:#b91c1c;font-weight:900;font-size:0.85rem;cursor:pointer;opacity:0.45;">Confirmar</button>
+                </div>
             </div>
         </div>`;
 
     document.body.appendChild(modal);
     window.__remTermoAtual = rem;
-    setTimeout(() => document.getElementById('rem-termo-obs')?.focus(), 120);
+    remTermoTravarFundo(true);
+    // Sem foco automático no campo de observações: no celular ele abriria o
+    // teclado e comeria metade da tela bem na hora de ler o termo.
 }
 window.remAbrirTermoRecebimento = remAbrirTermoRecebimento;
 
 // Sem o "Estou de acordo" marcado, não há confirmação: o botão fica inerte e
 // visivelmente apagado, para a razão de ele não funcionar ficar evidente.
+// Trava (e destrava) a rolagem da página de trás. Guarda o overflow anterior
+// em vez de assumir '': o app já mexe nele em outras telas, e sobrescrever
+// deixaria a página presa depois de fechar o termo.
+function remTermoTravarFundo(travar) {
+    const alvos = [document.body, document.documentElement];
+    alvos.forEach(el => {
+        if (!el) return;
+        if (travar) {
+            if (el.dataset.remOverflow === undefined) el.dataset.remOverflow = el.style.overflow || '';
+            el.style.overflow = 'hidden';
+        } else if (el.dataset.remOverflow !== undefined) {
+            el.style.overflow = el.dataset.remOverflow;
+            delete el.dataset.remOverflow;
+        }
+    });
+}
+window.remTermoTravarFundo = remTermoTravarFundo;
+
+// Fecha o termo e destrava o fundo. Todo caminho de saída passa por aqui —
+// cancelar, confirmar ou o "Voltar" do segundo aviso —, senão a página
+// ficaria travada sem o vermelho na frente para explicar o porquê.
+function remTermoFechar() {
+    document.getElementById('rem-termo-aviso-almox')?.remove();
+    document.getElementById('rem-termo-modal')?.remove();
+    window.__remTermoAtual = null;
+    remTermoTravarFundo(false);
+}
+window.remTermoFechar = remTermoFechar;
+
 function remTermoAtualizarBotao() {
     const ok = !!document.getElementById('rem-termo-check')?.checked;
     const btn = document.getElementById('rem-termo-confirmar');
@@ -15363,9 +15142,7 @@ async function remGravarRecebimento() {
         }
         remRecBipados = [];
 
-        document.getElementById('rem-termo-aviso-almox')?.remove();
-        document.getElementById('rem-termo-modal')?.remove();
-        window.__remTermoAtual = null;
+        remTermoFechar();
 
         const container = document.getElementById('rem-confirm-receipt');
         if (container) container.style.display = 'none';
