@@ -9064,7 +9064,6 @@ document.addEventListener('visibilitychange', () => {
 function atualizarSaudacao() {
     // O avatar ao lado da saudação foi removido. Esta linha limpa o que uma
     // aba aberta desde antes da mudança ainda tenha na tela.
-    document.getElementById('perfil-foto')?.remove();
     try {
         const user = JSON.parse(sessionStorage.getItem('lwn_user') || '{}');
         const nome = user.nome || 'Usuário';
