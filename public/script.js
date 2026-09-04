@@ -197,6 +197,8 @@ async function fazerLogin(email, senha, manterConectado) {
             cpf: usuarioAtual.cpf,
             cargo: usuarioAtual.cargo,
             permissoes: permissoesAtuais,
+            // Foto do perfil vinda da conta Microsoft, quando houver.
+            foto: usuarioAtual.foto || null,
             // Ainda com a senha de cadastro: o app lembra a troca uma vez por
             // login, com a opção de nunca mais avisar.
             senha_padrao: !!data.senha_padrao
@@ -215,6 +217,226 @@ async function fazerLogin(email, senha, manterConectado) {
         showToast('Erro ao conectar com o servidor');
         return false;
     }
+}
+
+// ======================================================
+// ENTRAR COM O ROSTO (Face ID / Windows Hello)
+//
+// Quem reconhece o rosto é o próprio aparelho, pelo padrão WebAuthn. Aqui só
+// acontecem três coisas: pedir um desafio ao servidor, mandar o aparelho
+// assinar esse desafio (é nesse momento que ele pede o rosto) e devolver a
+// assinatura para conferência.
+//
+// Nenhuma foto é capturada, enviada ou guardada — o segredo que prova a
+// identidade nunca sai do aparelho. O cadastro do rosto é feito DENTRO do
+// sistema, no botão flutuante do canto inferior direito.
+//
+// O botão só aparece em navegador que suporta WebAuthn: em qualquer outro,
+// ele seria um botão que não faz nada.
+// ======================================================
+function faceIdSuportado() {
+    return typeof window.PublicKeyCredential === 'function'
+        && !!(navigator.credentials && navigator.credentials.get);
+}
+
+function faceIdB64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function faceIdDeB64url(texto) {
+    const s = String(texto || '').replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(s + '='.repeat((4 - s.length % 4) % 4));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+}
+
+function faceIdMostrarBotao() {
+    if (!faceIdSuportado()) return;
+    mostrarLinhaEntrarCom();
+    const btn = document.getElementById('btnFaceId');
+    if (!btn) return;
+    btn.classList.add('visivel');
+    if (!btn.dataset.ligado) {
+        btn.dataset.ligado = '1';
+        btn.addEventListener('click', entrarComFaceId);
+    }
+}
+
+// "Ou entrar com" só faz sentido se houver com o que entrar. A linha aparece
+// quando o primeiro dos dois botões se mostra.
+function mostrarLinhaEntrarCom() {
+    document.getElementById('ouEntrarCom')?.classList.add('visivel');
+    document.querySelector('.entrar-com-linha')?.classList.add('visivel');
+}
+
+// ======================================================
+// ENTRAR COM A CONTA OUTLOOK
+//
+// Todo o vai-e-volta com a Microsoft acontece no servidor
+// (api/outlook.js): daqui é só uma navegação. O botão só aparece quando o
+// servidor confirma que o registro do Azure está configurado — senão ele
+// levaria a uma página de erro.
+// ======================================================
+async function outlookMostrarBotao() {
+    const btn = document.getElementById('btnOutlook');
+    if (!btn) return;
+    try {
+        const resp = await fetch(`${API_URL}/outlook/estado`, { cache: 'no-store' });
+        if (!resp.ok) return;
+        const dados = await resp.json();
+        if (!dados.configurado) return;
+    } catch (e) {
+        return;   // servidor fora do ar: o login por senha continua ali
+    }
+
+    mostrarLinhaEntrarCom();
+    btn.classList.add('visivel');
+    if (!btn.dataset.ligado) {
+        btn.dataset.ligado = '1';
+        btn.addEventListener('click', () => {
+            const lembrar = document.getElementById('loginRemember')?.checked ? '1' : '0';
+            window.location.href = `${API_URL}/outlook/entrar?lembrar=${lembrar}`;
+        });
+    }
+}
+
+async function entrarComFaceId() {
+    const btn = document.getElementById('btnFaceId');
+    const errorEl = document.getElementById('loginError');
+    const manterConectado = !!document.getElementById('loginRemember')?.checked;
+
+    const mostrarErro = (texto) => {
+        if (errorEl) { errorEl.textContent = texto; errorEl.style.display = 'block'; }
+    };
+    if (errorEl) errorEl.style.display = 'none';
+    btn?.classList.add('is-loading');
+
+    try {
+        const respOpc = await fetch(`${API_URL}/facial/entrada/opcoes`, { cache: 'no-store' });
+        const opc = await respOpc.json();
+        if (!respOpc.ok) throw new Error(opc.erro || `Erro ${respOpc.status}`);
+
+        const credencial = await navigator.credentials.get({
+            publicKey: {
+                challenge: faceIdDeB64url(opc.desafio),
+                rpId: opc.rpId,
+                // Lista vazia de propósito: o aparelho oferece as credenciais
+                // que ele mesmo tem para este site, e é ele quem diz de quem
+                // é o rosto. Não perguntamos o e-mail antes.
+                allowCredentials: [],
+                // "required" é o que obriga o rosto (ou a digital): sem isso o
+                // aparelho poderia liberar só com um toque na tela.
+                userVerification: 'required',
+                timeout: 60000
+            }
+        });
+
+        if (!credencial) throw new Error('O aparelho não devolveu nenhuma credencial.');
+
+        const resp = await fetch(`${API_URL}/facial/entrada`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                credencial_id: credencial.id,
+                client_data: faceIdB64url(credencial.response.clientDataJSON),
+                authenticator_data: faceIdB64url(credencial.response.authenticatorData),
+                assinatura: faceIdB64url(credencial.response.signature),
+                manter_conectado: manterConectado
+            })
+        });
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+
+        btn?.classList.remove('is-loading');
+
+        // O reconhecimento é rápido demais para dar tempo de ler qualquer
+        // coisa, e um aparelho pode ter mais de um rosto cadastrado. Antes de
+        // abrir o sistema, o usuário confirma em qual perfil está entrando.
+        faceIdConfirmarPerfil(dados, manterConectado);
+
+    } catch (err) {
+        console.error('Erro ao entrar com o rosto:', err);
+        btn?.classList.remove('is-loading');
+        const nome = err?.name || '';
+        mostrarErro(
+            nome === 'NotAllowedError'   ? 'Reconhecimento cancelado ou tempo esgotado. Tente novamente.'
+            : nome === 'NotSupportedError' ? 'Este aparelho não tem reconhecimento facial disponível.'
+            : nome === 'SecurityError'     ? 'O reconhecimento facial só funciona em conexão segura (https).'
+            : (err?.message || 'Não foi possível entrar com o reconhecimento facial.')
+        );
+    }
+}
+
+function faceIdConfirmarPerfil(dados, manterConectado) {
+    document.getElementById('facialConfirmOverlay')?.remove();
+
+    const nome = dados?.usuario?.nome || 'Colaborador';
+    const overlay = document.createElement('div');
+    overlay.className = 'facial-confirm-overlay';
+    overlay.id = 'facialConfirmOverlay';
+    overlay.innerHTML = `
+        <div class="facial-confirm-card">
+            <span class="facial-confirm-icone">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8"/>
+                    <path d="M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8"/>
+                    <path d="M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16"/>
+                    <path d="M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/>
+                    <path d="M9 9v1.5"/><path d="M15 9v1.5"/>
+                    <path d="M12 9.5v3.5a.8.8 0 0 1-.9.8"/>
+                    <path d="M8.8 16.2a4.6 4.6 0 0 0 6.4 0"/>
+                </svg>
+            </span>
+            <h3>Olá, ${faceIdEscapar(nome)}!</h3>
+            <p>Confirme que você está entrando no seu perfil.</p>
+            <button class="signin-btn" id="facialConfirmBtn">
+                <span>Confirmar</span>
+            </button>
+            <button type="button" class="facial-confirm-cancelar" id="facialConfirmCancelar">Não sou eu</button>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById('facialConfirmBtn').onclick = () => {
+        overlay.remove();
+        faceIdEntrar(dados, manterConectado);
+    };
+    document.getElementById('facialConfirmCancelar').onclick = () => overlay.remove();
+}
+
+function faceIdEscapar(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// A partir daqui é exatamente o que fazerLogin() faz depois de a senha ser
+// aceita: a sessão é montada do mesmo jeito, e o app abre igual.
+function faceIdEntrar(dados, manterConectado) {
+    usuarioAtual = dados.usuario;
+    permissoesAtuais = Array.isArray(dados.permissoes) ? dados.permissoes : [];
+
+    const userData = {
+        id: usuarioAtual.id,
+        nome: usuarioAtual.nome,
+        email: usuarioAtual.email,
+        cpf: usuarioAtual.cpf,
+        cargo: usuarioAtual.cargo,
+        permissoes: permissoesAtuais,
+        foto: usuarioAtual.foto || null,
+        senha_padrao: !!dados.senha_padrao
+    };
+
+    gravarUsuario(userData, manterConectado);
+    if (manterConectado && dados.token) gravarToken(dados.token);
+    ativarNotificacoes(userData);
+
+    const perfil = usuarioAtual.cargo === 'tecnico' ? 'tecnico' : 'almoxarife';
+    abrirApp(perfil, usuarioAtual.cargo === 'diretor');
 }
 
 // ======================================================
@@ -326,6 +548,9 @@ function setupLoginScreen() {
                 : './almoxarife/redefinir-senha.html';
         });
     }
+
+    faceIdMostrarBotao();
+    outlookMostrarBotao();
 
     setTimeout(() => document.getElementById('loginEmailInput')?.focus(), 100);
 }

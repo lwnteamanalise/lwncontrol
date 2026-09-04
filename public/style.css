@@ -340,6 +340,104 @@ html[data-theme="dark"]  .logo-light { display:none; }
   content: ''; flex: 1; height: 1px; background: var(--divider);
 }
 
+/* ============ ENTRAR COM O ROSTO ============
+   Reaproveita os mesmos tokens do resto do card, então o botão acompanha o
+   tema claro/escuro sem nenhuma regra própria de cor. O elemento fica oculto
+   por padrão: script.js só o mostra quando o navegador tem WebAuthn — num
+   aparelho sem sensor, um botão que não faz nada seria pior que nenhum. */
+.ou-entrar-com {
+  display: none; align-items: center; gap: 12px;
+  margin: 18px 0 12px; color: var(--field-placeholder); font-size: 12px;
+}
+.ou-entrar-com.visivel { display: flex; }
+.ou-entrar-com::before, .ou-entrar-com::after {
+  content: ''; flex: 1; height: 1px; background: var(--divider);
+}
+
+.face-id-btn {
+  display: none; align-items: center; justify-content: center;
+  width: 58px; height: 58px; margin: 0 auto;
+  border-radius: 18px; cursor: pointer; font-family: inherit;
+  background: var(--btn2-bg);
+  border: 1.5px solid var(--btn2-border);
+  color: var(--btn2-text);
+  transition: transform .18s ease, border-color .25s ease, box-shadow .25s ease, background .25s ease;
+}
+.face-id-btn.visivel { display: flex; }
+.face-id-btn svg { width: 30px; height: 30px; }
+.face-id-btn:hover {
+  transform: translateY(-2px);
+  border-color: var(--btn2-hover-border);
+  box-shadow: 0 8px 22px var(--btn-shadow);
+}
+.face-id-btn:active { transform: scale(.96); }
+.face-id-btn.is-loading { opacity: .55; pointer-events: none; }
+
+/* Os dois caminhos alternativos ficam lado a lado. A linha só aparece se ao
+   menos um deles estiver disponível (script.js decide). */
+.entrar-com-linha {
+  display: none; align-items: center; justify-content: center;
+  gap: 12px; flex-wrap: wrap;
+}
+.entrar-com-linha.visivel { display: flex; }
+.entrar-com-linha .face-id-btn { margin: 0; }
+
+.outlook-btn {
+  display: none; align-items: center; justify-content: center; gap: 9px;
+  height: 58px; padding: 0 20px;
+  border-radius: 18px; cursor: pointer; font-family: inherit;
+  font-size: 14px; font-weight: 700;
+  background: var(--btn2-bg);
+  border: 1.5px solid var(--btn2-border);
+  color: var(--btn2-text);
+  transition: transform .18s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.outlook-btn.visivel { display: flex; }
+.outlook-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+.outlook-btn:hover {
+  transform: translateY(-2px);
+  border-color: var(--btn2-hover-border);
+  box-shadow: 0 8px 22px var(--btn-shadow);
+}
+.outlook-btn:active { transform: scale(.96); }
+
+/* ============ CONFIRMAÇÃO DA ENTRADA POR ROSTO ============
+   O reconhecimento é rápido demais para dar tempo de ler qualquer coisa, e
+   um aparelho compartilhado pode ter mais de um rosto cadastrado. Este passo
+   existe para o usuário ver EM QUAL perfil está entrando antes de entrar. */
+.facial-confirm-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(3px);
+}
+.facial-confirm-card {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--card-bg); border: 1px solid var(--field-border);
+  border-radius: 22px; padding: 30px 26px 24px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .3);
+}
+.facial-confirm-card .facial-confirm-icone {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 62px; height: 62px; margin-bottom: 16px;
+  border-radius: 20px;
+  background: var(--icon-badge-bg); color: var(--icon-color);
+}
+.facial-confirm-card .facial-confirm-icone svg { width: 34px; height: 34px; }
+.facial-confirm-card h3 {
+  margin: 0 0 8px; font-size: 19px; font-weight: 800; color: var(--text-title);
+}
+.facial-confirm-card p {
+  margin: 0 0 22px; font-size: 13.5px; line-height: 1.5; color: var(--text-subtitle);
+}
+.facial-confirm-card .signin-btn { margin-top: 0; }
+.facial-confirm-card .facial-confirm-cancelar {
+  display: block; width: 100%; margin-top: 12px; padding: 6px;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  color: var(--back-color); font-size: 13px; font-weight: 600;
+}
+.facial-confirm-card .facial-confirm-cancelar:hover { color: var(--back-hover); }
+
 /* Toast */
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);

@@ -44,12 +44,27 @@ const LOGS_ACOES = {
     devolucao_parcial: { label: 'Devolveu ferramenta de', cor: '#be123c' },
     login: { label: 'Entrou', cor: '#64748b' },
     logout: { label: 'Saiu', cor: '#64748b' },
-    acesso: { label: 'Acessou', cor: '#64748b' }
+    acesso: { label: 'Acessou', cor: '#64748b' },
+    // Remanejamento: o pedido, a decisão e o recebimento têm nomes próprios,
+    // porque "editou Remanejamento #12" não diz o que de fato aconteceu.
+    remanejar_solicitar: { label: 'Solicitou remanejamento de', cor: '#8b5cf6' },
+    remanejar_aprovar:   { label: 'Aprovou o remanejamento de', cor: '#16a34a' },
+    remanejar_rejeitar:  { label: 'Rejeitou o remanejamento de', cor: '#dc2626' },
+    remanejar_receber:   { label: 'Recebeu por remanejamento', cor: '#0891b2' },
+    // Segurança: cadastro/remoção do rosto e as entradas por ele.
+    facial_cadastrar: { label: 'Cadastrou o reconhecimento facial de', cor: '#7c3aed' },
+    facial_remover:   { label: 'Removeu o reconhecimento facial de', cor: '#dc2626' }
 };
 
 // Rotas de ação da OS -> ação registrada no log.
 // A ordem importa: "devolucao-parcial" precisa ser testada antes de "devolutiva".
 const LOGS_ACOES_POR_ROTA = [
+    // As rotas do remanejamento vêm primeiro: /remanejamentos/aprovar também
+    // casa com /\/aprovar$/, e sem esta ordem o pedido de ferramenta viraria
+    // "aprovou OS".
+    [/\/remanejamentos\/passar(\?|$)/,   'remanejar_solicitar'],
+    [/\/remanejamentos\/aprovar(\?|$)/,  'remanejar_aprovar'],
+    [/\/remanejamentos\/rejeitar(\?|$)/, 'remanejar_rejeitar'],
     [/\/aprovar(\?|$)/, 'aprovar'],
     [/\/reprovar(\?|$)/, 'reprovar'],
     [/\/separar(\?|$)/, 'separar'],
@@ -125,7 +140,9 @@ const LOGS_ROTAS = [
     [/\/conferencias?(\/|\?|$)/, 'Conferência', 'conferencia'],
     [/\/relatorios?(\/|\?|$)/, 'Relatório', 'relatorios'],
     [/\/cargos?(\/|\?|$)/, 'Cargo', 'usuarios'],
-    [/\/configuracoes(\/|\?|$)/, 'Configuração', 'configuracoes']
+    [/\/configuracoes(\/|\?|$)/, 'Configuração', 'configuracoes'],
+    [/\/prorrogacoes?(\/|\?|$)/, 'Prorrogação de prazo', 'solicitacoes'],
+    [/\/facial(\/|\?|$)/, 'Reconhecimento facial', 'seguranca']
 ];
 
 // Nomes amigáveis para recursos ainda não mapeados (abas novas)
@@ -135,7 +152,17 @@ function logsRotuloGenerico(segmento) {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// Ações que o PRÓPRIO SERVIDOR já grava (ver registrarLogServidor em
+// api/server.js), com muito mais contexto do que o interceptador conseguiria
+// montar daqui: quem aprovou, quais TAGs, de que obra para qual. Capturá-las
+// também no navegador daria duas linhas para o mesmo ato.
+const LOGS_ROTAS_DO_SERVIDOR = [
+    /\/facial(\/|\?|$)/,
+    /\/remanejamentos\/(passar|aprovar|rejeitar)(\?|$)/
+];
+
 function logsIdentificarRota(url) {
+    if (LOGS_ROTAS_DO_SERVIDOR.some(re => re.test(String(url)))) return null;
     for (const [re, entidade, modulo] of LOGS_ROTAS) {
         if (re.test(url)) return { entidade, modulo };
     }

@@ -106,6 +106,44 @@
                       <span id="labelLogin">Entrar</span>
                   </button>
 
+                  <!-- ENTRAR COM O ROSTO
+                       Quem reconhece é o próprio aparelho (Face ID, Windows
+                       Hello, leitor do Android). O cadastro do rosto é feito
+                       dentro do sistema, no botão flutuante. -->
+                  <div class="ou-entrar-com" id="ouEntrarCom">
+                      <span>Ou entrar com</span>
+                  </div>
+
+                  <div class="entrar-com-linha">
+                  <button class="face-id-btn" id="btnFaceId" type="button" aria-label="Entrar com reconhecimento facial" title="Entrar com o reconhecimento facial deste aparelho">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                           stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8"/>
+                          <path d="M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8"/>
+                          <path d="M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16"/>
+                          <path d="M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/>
+                          <path d="M9 9v1.5"/>
+                          <path d="M15 9v1.5"/>
+                          <path d="M12 9.5v3.5a.8.8 0 0 1-.9.8"/>
+                          <path d="M8.8 16.2a4.6 4.6 0 0 0 6.4 0"/>
+                      </svg>
+                  </button>
+
+                  <!-- ENTRAR COM A CONTA MICROSOFT
+                       Quem confere a senha (e o MFA) é a Microsoft. O sistema
+                       só liga a conta ao colaborador já cadastrado aqui e
+                       traz a foto do perfil. -->
+                  <button class="outlook-btn" id="btnOutlook" type="button" aria-label="Entrar com a conta Outlook" title="Entrar com a sua conta Microsoft / Outlook">
+                      <svg viewBox="0 0 23 23" aria-hidden="true">
+                          <rect x="1"  y="1"  width="10" height="10" fill="#f25022"/>
+                          <rect x="12" y="1"  width="10" height="10" fill="#7fba00"/>
+                          <rect x="1"  y="12" width="10" height="10" fill="#00a4ef"/>
+                          <rect x="12" y="12" width="10" height="10" fill="#ffb900"/>
+                      </svg>
+                      <span>Outlook</span>
+                  </button>
+                  </div>
+
                   <div style="text-align: center; margin-top: 20px;">
                       <button id="btnEsqueciSenha" style="background:none; border:none; color:var(--field-label); font-size:13px; cursor:pointer; text-decoration:underline; font-family:inherit;">
                           Esqueceu sua senha?
