@@ -44,6 +44,18 @@
 29. Login: "Mantenha-me conectado"
 30. Desempenho e limpeza
 
+**Mudanças de 04/09**
+31. O número da O.S. deixou de repetir
+32. Separar TAGS: **sem nenhum select** — bipar é escolher
+33. Retirada: a baia é **obrigatória e vem primeiro**
+34. Remanejamento: quem começa é **quem está com a ferramenta**
+35. Entrar com o rosto — Face ID / Windows Hello
+36. Entrar com a conta Outlook, com a foto do perfil
+37. Notificação por e-mail
+38. Logs: o que faltava passou a ser registrado
+39. Recuperação de senha: o código vai para o e-mail
+40. Ajustes de 04/09 (segunda rodada)
+
 **Banco de dados** — resumo das colunas e rotas novas
 
 ---
@@ -660,3 +672,320 @@ chaves `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — as mesmas que estão nas
 Environment Variables da Vercel.
 
 Teste de pull request
+
+---
+
+# Mudanças de 04/09
+
+## 31. O número da O.S. deixou de repetir (04/09)
+
+Duas pessoas solicitando no mesmo minuto recebiam **o mesmo número**. Jefferson
+e Rodrigo às 10:45, com a última O.S. em 518, saíam os dois como **OS-519**.
+
+O motivo era onde o número era calculado: **no navegador**. Cada aba fazia
+`MAX(numero_os) + 1` sobre a lista que ela tinha em memória — e as duas abas
+tinham lido a mesma lista.
+
+Agora quem numera é o **banco**, dentro da mesma transação que grava a O.S.:
+
+```
+BEGIN
+  pg_advisory_xact_lock          <- a segunda chamada espera aqui
+  SELECT MAX(numero_os) + 1      <- lê
+  INSERT INTO solicitacoes       <- grava
+COMMIT                           <- solta o lock
+```
+
+A segunda solicitação só lê o número depois que a primeira gravou o dela.
+Jefferson sai **OS-519** e Rodrigo **OS-520**, mesmo clicando no mesmo segundo.
+
+O `numero_os` que o navegador mandava passou a ser **ignorado** — o número que
+aparece no aviso de sucesso é o que voltou do banco. Vale também para
+"Reutilizar O.S.", que tinha a mesma conta.
+
+---
+
+## 32. Separar TAGS: **sem nenhum select** — bipar é escolher (04/09)
+
+A tela tinha duas etapas: escolher a TAG numa lista e depois bipá-la para
+provar que era aquela mesma. A lista podia estar errada sem ninguém perceber.
+
+Agora **o único gesto é bipar**. A TAG que o leitor lê é a TAG que entra na
+O.S. — não há mais campo de seleção nenhum no pop-up.
+
+**A baia vem primeiro.** O campo das ferramentas nasce apagado e travado, com
+o aviso:
+
+> Bipe a baia acima para liberar a bipagem das ferramentas.
+
+Bipada a baia, o campo acende e o foco pula para ele sozinho.
+
+**Quem decide é o servidor.** Cada código vai para `POST /api/separacao/validar`,
+que recusa:
+
+| Situação | O que a tela diz |
+|---|---|
+| TAG em outra obra | *"MIC-03 não está disponível. Ela está na obra Bayer (#OS-0538). Para trazê-la para esta OS, **realize o remanejamento**."* |
+| Ferramenta indisponível | *"AIF-02 não está disponível — está em manutenção."* |
+| Ativo que a O.S. não pediu | *"Esta OS não pediu 'Termohigrômetro' — TH-01 não entra nela."* |
+| Quantidade já completa | *"As 2 unidade(s) de 'Anemômetro' desta OS já foram bipadas."* |
+
+No caso da ferramenta presa a outra obra, **"realize o remanejamento" é um
+link**: clicando, o pop-up fecha e a aba Remanejamento abre.
+
+No lugar dos selects entrou um **placar por ativo**, só leitura, que se
+preenche conforme as TAGs são bipadas — `Gerador de PAO · 0 de 1`.
+
+---
+
+## 33. Retirada: a baia é **obrigatória e vem primeiro** (04/09)
+
+Na **Retirada**, nenhum código de ferramenta é aceito antes da baia:
+
+> Bipe a BAIA desta OS antes de bipar qualquer ferramenta.
+
+O campo é um só (ferramenta e baia entram pelo mesmo lugar), então a trava
+recusa o que **não** for a baia — bipar a baia continua funcionando, que é
+justamente o que se espera ali. Vale inclusive nas rodadas seguintes de uma
+retirada parcial: quem volta para buscar o resto bipa a baia de novo, porque é
+dela que as ferramentas saem.
+
+**A devolutiva fica de fora.** Ali a ferramenta volta do campo e a baia pode
+nem estar junto — a trava só valeria para atrapalhar.
+
+**A baia saiu da tela de seleção da Retirada.** Ela aparecia entre "as
+ferramentas que você vai levar para a obra", com uma caixa que dava a entender
+que era possível deixá-la de fora. Não é. **O único lugar em que ela ainda
+aparece como escolha é a Devolutiva.**
+
+---
+
+## 34. Remanejamento: quem começa é **quem está com a ferramenta** (04/09)
+
+A aba **"Solicitar Remanejamento"** deixou de existir — com ela ia embora o
+papel do gestor montando o remanejamento de outra pessoa.
+
+O caminho agora é um só, e começa em **"Estou Passando"**:
+
+```
+Estou Passando          Aprovar               Estou Recebendo
+(o técnico monta        (quem tem a           (o responsável
+ e envia)         -->    permissão      -->    assina o termo)
+                         decide)
+```
+
+**"Estou Passando" voltou a decidir.** Os três campos — obra de origem, quem
+recebe e obra de destino — são editáveis de novo, e é quem está com a
+ferramenta que os preenche. O botão **"Confirmar Passagem" virou "Enviar
+Solicitação"**, porque é isso que ele faz agora.
+
+**Nada sai da obra antes da aprovação.** A baixa na O.S. de origem acontece no
+momento em que alguém aprova — enquanto o pedido está na fila, a ferramenta
+continua respondendo pela obra de origem e a devolutiva de lá continua
+cobrando ela.
+
+**A decisão cai na aba "Aprovar"**, no mesmo lugar das O.S. e das prorrogações,
+para quem tem a permissão nova **"Aprovar remanejamento"**. Duas saídas:
+
+- **Aprovar** → as ferramentas saem da obra de origem e vão para "Estou recebendo"
+- **Rejeitar** → nada se move; o motivo é obrigatório e fica no histórico
+
+O contador do botão "Aprovar" passou a somar os remanejamentos pendentes.
+
+### O recebimento virou um termo de responsabilidade
+
+Clicar em "Confirmar Recebimento" não grava mais nada: abre uma tela que não
+dá para confundir com o resto do sistema — **fundo vermelho em movimento**,
+como um alerta de emergência.
+
+Nela, em ordem:
+
+1. o que está sendo assumido (ferramentas, de onde vieram, de quem);
+2. o aviso de que **a responsabilidade total passa a ser de quem recebe**, e de
+   que qualquer avaria devolvida sem estar escrita nas observações **é
+   responsabilidade dele**;
+3. um campo de **observações** (opcional) para anotar o que já vem danificado;
+4. o check **"Estou de acordo"** — sem ele, "Confirmar" fica apagado e inerte.
+
+Confirmando, ainda aparece um **segundo aviso**:
+
+> **Estas ferramentas não foram conferidas pelo almoxarife**
+> Este remanejamento foi de obra para obra: nenhum almoxarife abriu, testou ou
+> conferiu o que está chegando até você.
+
+Só depois desse segundo "Confirmar" a responsabilidade muda de dono.
+
+O histórico ganhou as linhas **"Aprovada por"**, **"Rejeitada por"**, o motivo
+da rejeição e a **avaria anotada no recebimento**.
+
+---
+
+## 35. Entrar com o rosto — Face ID / Windows Hello (04/09)
+
+**Um botão flutuante** com o símbolo do Face ID fica no canto inferior direito
+de todas as telas. Clicando, o colaborador cadastra o rosto **naquele
+aparelho** (e vê ali os aparelhos já cadastrados, com a opção de remover).
+
+Na **tela de login**, embaixo de "Entrar", entrou **"Ou entrar com"** e o mesmo
+símbolo. Clicando, o aparelho pede o rosto e a entrada acontece sozinha.
+
+Antes de abrir o sistema, um pop-up confirma:
+
+> **Olá, Jefferson Silva!**
+> Confirme que você está entrando no seu perfil.
+
+O reconhecimento é rápido demais para dar tempo de ler qualquer coisa, e um
+aparelho compartilhado pode ter mais de um rosto cadastrado — por isso o passo
+existe.
+
+**Nenhuma foto é capturada, enviada ou guardada.** Quem reconhece o rosto é o
+próprio aparelho (o Face ID do iPhone, o Windows Hello, o leitor do Android),
+pelo padrão **WebAuthn** — o mesmo que os aplicativos de banco usam. O servidor
+guarda só uma **chave pública**, que não serve para reconstruir nada; o segredo
+que prova a identidade nunca sai do aparelho.
+
+O botão só aparece em navegador que tem esse recurso, e só funciona em conexão
+segura (https) — é uma exigência do próprio padrão.
+
+---
+
+## 36. Entrar com a conta Outlook, com a foto do perfil (04/09)
+
+Ao lado do Face ID entrou o botão **Outlook**. Quem confere a senha (e o MFA)
+é a Microsoft; o sistema só liga a conta ao colaborador **já cadastrado aqui**
+— quem não estiver no cadastro não entra, e nenhum usuário é criado por esse
+caminho.
+
+A **foto do perfil** da conta Microsoft é trazida junto e passa a aparecer no
+Painel Geral, ao lado da saudação. Sem foto, o lugar mostra as **iniciais**.
+
+---
+
+## 37. Notificação por e-mail (04/09)
+
+Sete avisos passaram a sair também por **e-mail**, pelo Microsoft 365:
+
+| Aviso | Quando | Para quem |
+|---|---|---|
+| **Solicitação de O.S.** | a O.S. é enviada | **só** o responsável indicado nela |
+| **Remanejamento** | o pedido é enviado | **todos** que podem aprovar remanejamento |
+| **Retirada** | as TAGs são separadas | quem faz a retirada |
+| **Devolutiva** | último dia da obra (e a cada dia de atraso) | quem responde pela O.S. |
+| **Avaria** | a ferramenta volta danificada | quem tem a permissão de avarias |
+| **Status da obra** | a O.S. muda de status | quem enviou e quem responde por ela |
+| **Certificado** | o certificado muda de status | quem cuida de certificados |
+
+Cada e-mail traz **tudo o que dá para dizer sobre a ação** numa tabela: quem
+fez, quando, sobre qual O.S., quais ferramentas, de qual obra para qual, o
+motivo — e um botão que abre o sistema **já na aba certa**.
+
+### Permissões de notificação
+
+Na tela de **Cargos**, abaixo das permissões normais, entrou um bloco próprio:
+**Permissões de notificação**. Elas não abrem tela nenhuma — dizem só **o que
+cada cargo recebe por e-mail**:
+
+- Solicitação de OS — quando indicarem você como responsável
+- Remanejamento aguardando aprovação
+- Ferramentas liberadas para retirada
+- Último dia da obra (devolutiva ou prorrogação)
+- Ferramenta devolvida com avaria
+- Mudança de status da obra
+- Mudança de status de certificado
+
+Enquanto **nenhum** cargo tiver uma dessas caixas marcada, quem já responde
+pelo assunto recebe — senão ligar o e-mail não mandaria nada a ninguém até
+alguém configurar cargo por cargo. Marcada a primeira, passa a valer **só o
+que está configurado**.
+
+### O que precisa estar configurado
+
+No **Azure** (registro de aplicativo): permissão de aplicativo `Mail.Send` com
+consentimento do administrador, permissão delegada `User.Read`, e a URI de
+redirecionamento `https://SEU-DOMINIO/api/outlook/retorno`.
+
+No **.env** e nas *Environment Variables* da Vercel: `OUTLOOK_CLIENT_ID`,
+`OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT`, `OUTLOOK_REMETENTE` e `APP_URL`.
+
+`GET /api/email/estado` responde "por que não chega e-mail" sem precisar abrir
+o servidor: diz o que falta e se o Azure aceita as credenciais.
+
+---
+
+## 38. Logs: o que faltava passou a ser registrado (04/09)
+
+Havia ações que **não deixavam rastro nenhum** na aba Logs, porque nasciam no
+servidor e nunca passavam pelo interceptador do navegador. Agora aparecem:
+
+- **Entrou** — por senha, por reconhecimento facial e por conta Outlook, com o
+  método, o aparelho e o navegador
+- **Saiu**
+- **Cadastrou / removeu o reconhecimento facial**, com o aparelho
+- **Solicitou / aprovou / rejeitou remanejamento**, com origem, destino, quem
+  passou, quem recebe e as TAGs
+- **Recebeu por remanejamento**, com o termo aceito e as avarias anotadas
+
+Módulo novo nos filtros: **`seguranca`**.
+
+As rotas que o servidor registra sozinho ficam **fora** da captura automática
+do navegador — senão sairiam duas linhas para o mesmo ato, uma delas mais
+pobre.
+
+---
+
+## 39. Recuperação de senha: o código vai para o e-mail (04/09)
+
+Redefinir senha dependia de um administrador: ele abria a aba **Colaboradores**,
+clicava em **"Gerar Código"**, lia o número na tela e passava para a pessoa por
+telefone ou WhatsApp. O código nunca chegava sozinho a ninguém, e quem esquecia
+a senha fora do horário comercial ficava parado.
+
+O botão **"Gerar Código" foi removido** da aba Colaboradores. Agora o próprio
+colaborador resolve, em **"Esqueceu sua senha?"** na tela de login:
+
+1. informa o **e-mail ou o CPF**;
+2. recebe um **código de 6 dígitos no e-mail cadastrado**, válido por 15 minutos;
+3. digita o código e escolhe a senha nova.
+
+O CPF serve só para achar o cadastro — **o código vai sempre para o e-mail do
+perfil**, nunca para um endereço informado na hora. A tela mostra o destino
+mascarado (`je*********@lwn.com.br`) para a pessoa saber qual caixa olhar.
+
+**Sem e-mail cadastrado**, a resposta é direta: *"Este cadastro não tem e-mail
+cadastrado... Fale com o responsável para a inclusão do seu e-mail."*
+
+Quando o e-mail/CPF **não existe**, a resposta é a mesma do caso de sucesso e
+nenhum e-mail sai — senão a tela viraria um jeito de descobrir quem tem cadastro
+na empresa. Trocar a senha também **encerra as sessões salvas**: quem tinha o
+acesso antigo num aparelho perdido não continua entrando com ele.
+
+---
+
+## 40. Ajustes de 04/09 (segunda rodada)
+
+**Separação: um campo só.** A baia e as ferramentas passaram a ser bipadas na
+**mesma linha** — não existem mais dois campos. O código lido é testado primeiro
+como baia e, não sendo uma, como ferramenta. A **ordem continua obrigatória**:
+antes da baia, nenhuma ferramenta é aceita, e o aviso abaixo do campo diz
+*"Comece pela baia — as ferramentas só são aceitas depois dela."*
+
+**A foto do perfil saiu do Painel.** Ela continua sendo trazida da conta
+Microsoft e guardada no cadastro; o que saiu foi o avatar ao lado da saudação.
+
+**O botão do Face ID subiu e ficou translúcido.** Ele cobria o menu: agora fica
+acima da barra inferior, um pouco menor e com 45% de opacidade — fica sólido ao
+passar o cursor ou tocar.
+
+**Remanejamento: um dos dois destinos basta.** Os dois textos explicativos foram
+removidos, e obra de destino e responsável deixaram de ser os dois obrigatórios:
+
+- **só responsável** → a ferramenta fica com ele e aparece na **Localização** no
+  nome dele; ele devolve pela aba "Estou devolvendo"
+- **só obra** → entra na **O.S.** daquela obra e é exigida na devolutiva de lá
+- **os dois** → entra na O.S. e o responsável assina o recebimento
+
+**A tela de recebimento ocupa a tela toda.** O vermelho encostava nas bordas
+menos numa faixa de ~6px à direita (a barra de rolagem da página de trás) — o
+scroll do fundo agora é travado enquanto o termo está aberto. E tudo **cabe sem
+rolar**: o cartão virou três faixas (topo, miolo rolável, rodapé), com o check
+"Estou de acordo" e o "Confirmar" sempre à vista, no desktop e no celular.

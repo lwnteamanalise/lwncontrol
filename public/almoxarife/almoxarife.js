@@ -246,9 +246,10 @@ const PERMISSOES_MODULOS = [
     // DECIDIR a prorrogação: os pedidos caem na aba "Aprovar" do Painel Geral,
     // com Aprovar, Editar (outra data, com motivo) e Rejeitar (com motivo).
     ['aceitar_prorrogacao', 'Aceitar prorrogação (aprovar, editar ou rejeitar o pedido)'],
-    // Abre a aba "Solicitar remanejamento": o gestor monta o remanejamento
-    // inteiro e manda para o responsável apenas executar.
-    ['solicitar_remanejamento', 'Solicitar Remanejamento (gestor)'],
+    // DECIDIR o remanejamento: quem passa a ferramenta monta o pedido em
+    // "Estou passando", e ele cai na aba "Aprovar" de quem tem esta permissão.
+    // Nada sai da obra antes desse aval.
+    ['aprovar_remanejamento', 'Aprovar remanejamento'],
     // Sem ela o botão "Adicionar" some e o que for TECLADO À MÃO (ou colado)
     // no campo é descartado. BIPAR continua liberado para todo mundo: o
     // leitor físico de código de barras e a câmera adicionam sozinhos.
@@ -271,6 +272,29 @@ const PERMISSOES_MODULOS = [
     ['gerenciar_cargos', 'Criar/Editar Cargos']
 ];
 
+// ============================================================
+// PERMISSÕES DE NOTIFICAÇÃO (E-MAIL)
+//
+// Estas NÃO abrem tela nenhuma — elas dizem só quem recebe e-mail de quê.
+// Por isso vivem num bloco separado na tela de Cargos, abaixo das permissões
+// normais: misturar "vê a aba Manutenção" com "recebe e-mail de avaria" numa
+// lista só faria as duas coisas serem marcadas por engano.
+//
+// Enquanto NENHUM cargo tiver a chave marcada, vale a herança: quem já
+// responde pelo assunto recebe (a regra completa está em api/email.js, em
+// `destinatarios`). Marcada a primeira, passa a valer só o que está aqui.
+// ============================================================
+const PERMISSOES_NOTIFICACAO = [
+    ['notif_os_solicitada', 'Solicitação de OS — quando indicarem você como responsável'],
+    ['notif_remanejamento', 'Remanejamento aguardando aprovação'],
+    ['notif_retirada',      'Ferramentas liberadas para retirada'],
+    ['notif_devolutiva',    'Último dia da obra (devolutiva ou prorrogação)'],
+    ['notif_avaria',        'Ferramenta devolvida com avaria'],
+    ['notif_status_obra',   'Mudança de status da obra'],
+    ['notif_certificado',   'Mudança de status de certificado']
+];
+window.PERMISSOES_NOTIFICACAO = PERMISSOES_NOTIFICACAO;
+
 function carregarPermissoesCargos() {
     const obj = lerConfigLocal('lwn_permissoes_cargos', {});
     return (obj && typeof obj === 'object') ? obj : {};
@@ -284,8 +308,14 @@ function salvarPermissoesCargos(obj) {
 // fora do pacote padrão, senão todo cargo novo nasceria sem poder editar.
 const PERMISSOES_RESTRICAO = ['manutencao_somente_leitura'];
 
+// As chaves de notificação também ficam de fora do pacote padrão: um cargo
+// novo não deve nascer inscrito em todos os e-mails do sistema. Elas são
+// marcadas uma a uma, no bloco próprio da tela de Cargos.
+const PERMISSOES_FORA_DO_PADRAO = PERMISSOES_RESTRICAO
+    .concat(PERMISSOES_NOTIFICACAO.map(p => p[0]));
+
 function permissoesPadraoCargo(cargo) {
-    const todas = PERMISSOES_MODULOS.map(p => p[0]).filter(p => !PERMISSOES_RESTRICAO.includes(p));
+    const todas = PERMISSOES_MODULOS.map(p => p[0]).filter(p => !PERMISSOES_FORA_DO_PADRAO.includes(p));
     if (cargo === 'Técnico') {
         return todas.filter(p => !['usuarios', 'gerenciar_os', 'aprovar_todas_os', 'alterar_cargo', 'gerenciar_cargos'].includes(p));
     }
@@ -324,14 +354,20 @@ const PERMISSOES_HERDADAS = [
     // Prorrogar entrou no pacote de "mexer na OS": quem já editava OS (ou já
     // fazia devolução parcial) continua podendo esticar o prazo.
     ['prorrogar_os', ['gerenciar_os', 'devolucao_parcial', 'devolutiva']],
-    // A aba de solicitar remanejamento nasce para quem já administra OS.
-    ['solicitar_remanejamento', ['gerenciar_os']],
+    // Aprovar remanejamento: quem já administrava as OS decide, até que a
+    // permissão seja marcada explicitamente em algum cargo.
+    ['aprovar_remanejamento', ['gerenciar_os', 'aprovar_todas_os']],
     // Digitar o código na bipagem era o comportamento de todo mundo antes
     // desta permissão existir — quem já bipava continua podendo digitar.
     ['bipagem_manual', ['separar_tags', 'gerenciar_os']],
     // Prorrogar era um ato direto: quem já podia prorrogar continua decidindo
     // (agora aprovando o pedido), para nenhuma OS ficar sem quem aceite.
     ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']]
+    // As permissões de NOTIFICAÇÃO ficam de fora desta lista de propósito: a
+    // herança delas é decidida no servidor, na hora de escolher quem recebe
+    // (api/email.js -> destinatarios), e não copiada para o cargo. Herdá-las
+    // aqui marcaria a caixa na tela, e aí a herança nunca sairia — ligar o
+    // e-mail para um cargo passaria a ser irreversível.
 ];
 
 function aplicarPermissoesHerdadas(lista) {
@@ -445,16 +481,31 @@ function renderCargoPermissoesHtml(cargo, prefixo, opcoes) {
         + '<input type="checkbox" id="' + prefixo + chave + '"' + (atuais.includes(chave) ? ' checked' : '')
         + ' style="cursor:pointer;width:0.9rem;height:0.9rem;flex-shrink:0;">' + rotulo + '</label>'
     )).join('');
+    // As de notificação vêm depois, num bloco próprio: elas não dão acesso a
+    // nada — dizem só o que este cargo recebe por e-mail.
+    const notificacoes = PERMISSOES_NOTIFICACAO.map(([chave, rotulo]) => (
+        '<label style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;cursor:pointer;color:var(--text-main);">'
+        + '<input type="checkbox" id="' + prefixo + chave + '"' + (atuais.includes(chave) ? ' checked' : '')
+        + ' style="cursor:pointer;width:0.9rem;height:0.9rem;flex-shrink:0;">' + rotulo + '</label>'
+    )).join('');
+
     return renderCargoResponsavelHtml(cargo, prefixo)
         + '<div class="form-group" style="margin-bottom:1.25rem;">'
         + '<label class="form-label" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.4rem;">Permissões do Cargo</label>'
         + '<div class="cargo-perms-box">' + itens + '</div>'
+        + '</div>'
+        + '<div class="form-group" style="margin-bottom:1.25rem;">'
+        + '<label class="form-label" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.15rem;">Permissões de notificação</label>'
+        + '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem;">'
+        + 'O que este cargo recebe por e-mail. Não dá acesso a nenhuma tela.'
+        + '</div>'
+        + '<div class="cargo-perms-box">' + notificacoes + '</div>'
         + '</div>';
 }
 
 function coletarPermissoesCargoForm(prefixo) {
     const lista = [];
-    PERMISSOES_MODULOS.forEach(([chave]) => {
+    PERMISSOES_MODULOS.concat(PERMISSOES_NOTIFICACAO).forEach(([chave]) => {
         const el = document.getElementById(prefixo + chave);
         if (el && el.checked) lista.push(chave);
     });
@@ -2838,12 +2889,14 @@ function renderUsuariosTable(targetId) {
         badgeClass = 'badge-cargo';
         badgeStyle = `background: color-mix(in srgb, ${corCargo} 14%, transparent); color: ${corCargo}; font-weight:700; border:none;`;
 
-        // Ações (Gerar Código) - sempre visíveis
-        const acoesHtml = `
-            <button class="btn btn-primary btn-sm"onclick="gerarCodigoRecuperacao(${u.id}, '${u.nome}', '${u.cpf || ''}')"style="padding: 0.2rem 0.5rem; font-size: 0.7rem;"title="Gerar código de recuperação de senha">
-                 Gerar Código
-            </button>
-        `;
+        // "Gerar Código" saiu daqui.
+        //
+        // Redefinir senha dependia de um administrador ler um número na tela e
+        // passar para a pessoa por telefone. Agora o próprio colaborador pede,
+        // na tela de login ("Esqueceu sua senha?"), e o código de 6 dígitos vai
+        // direto para o e-mail cadastrado dele — ninguém mais precisa
+        // intermediar, e o código não passa por WhatsApp.
+        const acoesHtml = '';
 
         return `
             <tr>
@@ -3637,7 +3690,16 @@ function atualizarBadgeAprovacao() {
     const podeProrrogacao = typeof usuarioPodeAceitarProrrogacao === 'function'
         && usuarioPodeAceitarProrrogacao();
     const prorrogacoes = podeProrrogacao ? (window.prorrogacoesPendentes || []).length : 0;
-    const total = osPendentes + prorrogacoes;
+
+    // Remanejamentos aguardando aprovação entram na mesma conta: eles vivem na
+    // mesma aba, e um pedido parado é exatamente o que este contador existe
+    // para não deixar passar.
+    const podeRemanejar = typeof remPodeAprovar === 'function' && remPodeAprovar();
+    const remanejamentos = podeRemanejar && typeof aprovAgruparRemanejamentos === 'function'
+        ? aprovAgruparRemanejamentos(window.aprovRemanejamentos || []).length
+        : 0;
+
+    const total = osPendentes + prorrogacoes + remanejamentos;
     badge.textContent = total;
     badge.style.display = total ? 'inline-flex' : 'none';
 }
@@ -6219,7 +6281,20 @@ function sairApp() {
     if (!confirm("Tem certeza que deseja sair da sua conta?")) {
         return;
     }
-    
+
+    // O log tem de sair ANTES de a sessão ser limpa: registrarLog lê o nome
+    // do usuário do sessionStorage, e depois do clear() ele viraria
+    // "Desconhecido". Não há await de propósito — segurar a saída da conta
+    // por causa de um registro seria pior do que perder o registro.
+    try {
+        if (typeof registrarLog === 'function') {
+            registrarLog('logout', 'seguranca', 'Saiu do sistema', {
+                entidade: 'Acesso',
+                detalhes: { contexto: { 'Saída': 'Pelo botão Sair' } }
+            });
+        }
+    } catch (e) { /* sair da conta nunca pode falhar por causa do log */ }
+
     // Limpar sessão
     try {
         sessionStorage.removeItem('lwn_user');
@@ -7542,12 +7617,16 @@ async function enviarSolicitacaoFinal() {
     const opcaoSupervisor = supervisorSelect?.selectedOptions?.[0];
     const responsavelId = opcaoSupervisor?.dataset?.userId ? parseInt(opcaoSupervisor.dataset.userId) : null;
 
-    // Gerar número da OS
-    const numeroOS = workOrders.length > 0 ? Math.max(...workOrders.map(w => w.numero_os || 0)) + 1 : 1;
+    // O NÚMERO DA OS NÃO É GERADO AQUI.
+    //
+    // Fazer MAX(numero_os)+1 no navegador significava numerar a partir da
+    // lista que ESTA aba tinha em memória: duas pessoas solicitando no mesmo
+    // minuto liam a mesma lista e recebiam o mesmo número. Quem numera agora
+    // é o banco, dentro da transação que grava a OS (POST /api/solicitacoes),
+    // e o número real volta na resposta.
 
     // Criar objeto da OS - AGORA COM TIPOS EM VEZ DE IDs
     const novaOS = {
-        numero_os: numeroOS,
         cliente: cliente,
         responsavel: supervisor,
         obra: obra,
@@ -7595,6 +7674,9 @@ async function enviarSolicitacaoFinal() {
 
         const resultado = await resposta.json();
         console.log("OS criada no banco:", resultado);
+
+        // O número exibido é o que o banco devolveu — nunca um palpite local.
+        const numeroOS = resultado?.numero_os ?? resultado?.id ?? '—';
 
         showToast(`Solicitação #OS-${String(numeroOS).padStart(4, '0')} enviada para aprovação de ${supervisor}!`, "success");
 
@@ -8980,6 +9062,8 @@ document.addEventListener('visibilitychange', () => {
 // ATUALIZAR SAUDAÇÃO COM NOME DO USUÁRIO
 // ============================================================
 function atualizarSaudacao() {
+    // O avatar ao lado da saudação foi removido. Esta linha limpa o que uma
+    // aba aberta desde antes da mudança ainda tenha na tela.
     try {
         const user = JSON.parse(sessionStorage.getItem('lwn_user') || '{}');
         const nome = user.nome || 'Usuário';
@@ -8997,297 +9081,21 @@ function atualizarSaudacao() {
         if (nameEl) {
             nameEl.textContent = nome;
         }
+
     } catch (e) {
         console.warn("Erro ao atualizar saudação:", e);
     }
 }
 
+
 setInterval(() => { try { atualizarSaudacao(); } catch (e) {} }, 60000);
 
-// ============================================================
-// FUNÇÃO PARA GERAR CÓDIGO DE RECUPERAÇÃO (COM PERSISTÊNCIA)
-// ============================================================
-let timerIntervalCodigo = null;
-let codigoAtual = null; // Armazena o código atual para evitar regeneração
-
-// ============================================================
-// FUNÇÃO PARA FORMATAR CPF
-// ============================================================
-function formatarCpf(cpf) {
-    if (!cpf) return '---';
-    // Remove tudo que não é número
-    const numeros = cpf.replace(/\D/g, '');
-    // Verifica se tem 11 dígitos
-    if (numeros.length !== 11) return cpf;
-    // Aplica a máscara: 123.456.789-10
-    return numeros.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-}
-
-async function gerarCodigoRecuperacao(usuarioId, nome, cpf) {
-    console.log("Gerando/obtendo código para:", nome, "CPF:", cpf);
-    
-    // Verificar se já existe um código ativo para este usuário
-    try {
-        // Primeiro, verificar se o usuário já tem um código ativo no banco
-        const resposta = await fetch(`${API_URL}/usuarios/${usuarioId}/gerar-codigo`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ forcar_novo: false }) // NÃO força novo código
-        });
-
-        if (!resposta.ok) {
-            const erro = await resposta.json();
-            throw new Error(erro.erro || "Erro ao gerar código");
-        }
-
-        const dados = await resposta.json();
-        
-        // Mostrar o código em um modal com timer
-        mostrarCodigoRecuperacao(dados, usuarioId);
-        
-    } catch (erro) {
-        console.error("Erro:", erro);
-        showToast("Erro ao gerar código: " + erro.message, "danger");
-    }
-}
-
-// ============================================================
-// FUNÇÃO PARA EXIBIR O CÓDIGO GERADO COM TIMER (CPF FORMATADO)
-// ============================================================
-function mostrarCodigoRecuperacao(dados, usuarioId) {
-    // Se o modal já existe, apenas atualiza o timer se necessário
-    const existing = document.getElementById('codigo-modal');
-    if (existing) {
-        // Se o código ainda é válido, não recria o modal
-        if (dados.tempo_restante >0 && dados.reutilizado) {
-            return;
-        }
-        if (timerIntervalCodigo) {
-            clearInterval(timerIntervalCodigo);
-            timerIntervalCodigo = null;
-        }
-        existing.remove();
-    }
-
-    let segundosRestantes = dados.tempo_restante || 60;
-    
-    // Formatar CPF
-    const cpfFormatado = formatarCpf(dados.cpf);
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay active';
-    modal.id = 'codigo-modal';
-    modal.innerHTML = `
-        <div class="modal-container"style="max-width: 500px;">
-            <div class="modal-header">
-                <span class="modal-title">Código de Recuperação</span>
-                <button class="modal-close"onclick="fecharModalCodigo()">
-                    <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"style="width:1.25rem;height:1.25rem;"><line x1="18"y1="6"x2="6"y2="18"/><line x1="6"y1="6"x2="18"y2="18"/></svg>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div style="text-align: center; margin-bottom: 1.5rem;">
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                        Usuário: <strong style="color: var(--text-main);">${dados.usuario}</strong>
-                    </p>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                        CPF: <strong style="color: var(--text-main); font-family: monospace;">${cpfFormatado}</strong>
-                    </p>
-                    ${dados.reutilizado ? `<p style="font-size: 0.75rem; color: var(--info); margin-bottom: 0.5rem;">Código reutilizado (ainda válido)</p>` : ''}
-                    <div style="background: var(--bg-main); border: 2px solid var(--primary); border-radius: 0.75rem; padding: 1.5rem; margin: 1rem 0;">
-                        <span id="codigo-display"style="font-size: 2.8rem; font-weight: 900; color: var(--primary); letter-spacing: 0.1em; font-family: monospace;">
-                            ${dados.codigo}
-                        </span>
-                    </div>
-                    
-                    <!-- Timer -->
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin: 0.5rem 0;">
-                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"style="width:1.2rem;height:1.2rem;color:var(--text-muted);">
-                            <circle cx="12"cy="12"r="10"/>
-                            <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                        <span style="font-size: 0.9rem; color: var(--text-muted);">
-                            Válido por: 
-                            <span id="timer-segundos"style="font-weight: 800; color: var(--primary); font-size: 1.1rem;">
-                                ${segundosRestantes}
-                            </span>
-                            <span style="color: var(--text-muted);">s</span>
-                        </span>
-                    </div>
-                    
-                    <!-- Barra de progresso -->
-                    <div style="width: 100%; height: 4px; background: var(--bg-surface); border-radius: 2px; margin: 0.5rem 0 1rem; overflow: hidden;">
-                        <div id="timer-bar"style="width: ${(segundosRestantes / 60) * 100}%; height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.3s linear;"></div>
-                    </div>
-
-                    <div style="font-size: 0.75rem; color: var(--text-muted); background: var(--bg-surface); padding: 0.75rem; border-radius: 0.5rem; text-align: left;">
-                        <strong>Instruções:</strong><br>
-                        1. Informe este código e o CPF ao usuário.<br>
-                        2. O usuário deve acessar a página de <strong>Redefinição de Senha</strong>.<br>
-                        3.  O código expira em <strong>${segundosRestantes} segundos</strong>.
-                    </div>
-                </div>
-                
-                <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
-                    <button class="btn btn-outline btn-sm"onclick="copiarCodigo('${dados.codigo}')"style="font-size: 0.8rem;">
-                         Copiar Código
-                    </button>
-                    <button class="btn btn-outline btn-sm"onclick="copiarCodigo('${dados.cpf || ''}')"style="font-size: 0.8rem;">
-                         Copiar CPF
-                    </button>
-                    <button class="btn btn-primary btn-sm"onclick="gerarNovoCodigo(${usuarioId}, '${dados.usuario}')"style="font-size: 0.8rem;">
-                         Gerar Novo Código
-                    </button>
-                    <button class="btn btn-success btn-sm"onclick="window.open('redefinir-senha.html', '_blank')"style="font-size: 0.8rem;">
-                         Abrir Redefinição
-                    </button>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline"onclick="fecharModalCodigo()">Fechar</button>
-            </div>
-        </div>`;
-    document.body.appendChild(modal);
-
-    // Iniciar timer
-    iniciarTimerCodigo(segundosRestantes, usuarioId, dados.usuario);
-}
-
-// ============================================================
-// FUNÇÃO PARA INICIAR O TIMER
-// ============================================================
-function iniciarTimerCodigo(segundos, usuarioId, nome) {
-    if (timerIntervalCodigo) {
-        clearInterval(timerIntervalCodigo);
-        timerIntervalCodigo = null;
-    }
-
-    let segundosRestantes = segundos;
-    const timerElement = document.getElementById('timer-segundos');
-    const barElement = document.getElementById('timer-bar');
-    const codigoDisplay = document.getElementById('codigo-display');
-
-    timerIntervalCodigo = setInterval(() => {
-        segundosRestantes--;
-        
-        if (timerElement) {
-            timerElement.textContent = segundosRestantes;
-        }
-        
-        if (barElement) {
-            const porcentagem = (segundosRestantes / segundos) * 100;
-            barElement.style.width = Math.max(0, porcentagem) + '%';
-            
-            if (porcentagem < 20) {
-                barElement.style.background = 'var(--danger)';
-            } else if (porcentagem < 50) {
-                barElement.style.background = 'var(--warning)';
-            } else {
-                barElement.style.background = 'var(--primary)';
-            }
-        }
-
-        if (segundosRestantes <= 0) {
-            clearInterval(timerIntervalCodigo);
-            timerIntervalCodigo = null;
-            
-            if (timerElement) {
-                timerElement.textContent = '0';
-                timerElement.style.color = 'var(--danger)';
-            }
-            
-            if (codigoDisplay) {
-                codigoDisplay.style.color = 'var(--danger)';
-                codigoDisplay.style.textDecoration = 'line-through';
-            }
-            
-            showToast("O código expirou! Clique em 'Gerar Novo Código'para renovar.", "warning");
-        }
-    }, 1000);
-}
-
-// ============================================================
-// FUNÇÃO PARA FECHAR O MODAL
-// ============================================================
-function fecharModalCodigo() {
-    if (timerIntervalCodigo) {
-        clearInterval(timerIntervalCodigo);
-        timerIntervalCodigo = null;
-    }
-    const modal = document.getElementById('codigo-modal');
-    if (modal) modal.remove();
-}
-
-// ============================================================
-// FUNÇÃO PARA GERAR NOVO CÓDIGO (FORÇA NOVO)
-// ============================================================
-async function gerarNovoCodigo(usuarioId, nome) {
-    console.log("Gerando novo código para:", nome);
-    
-    try {
-        const resposta = await fetch(`${API_URL}/usuarios/${usuarioId}/gerar-codigo`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ forcar_novo: true })
-        });
-
-        if (!resposta.ok) {
-            const erro = await resposta.json();
-            throw new Error(erro.erro || "Erro ao gerar código");
-        }
-
-        const dados = await resposta.json();
-        
-        // Fechar modal atual e abrir com novo código
-        fecharModalCodigo();
-        mostrarCodigoRecuperacao(dados, usuarioId);
-        
-        showToast("Novo código gerado! Válido por 1 minuto.", "success");
-        
-    } catch (erro) {
-        console.error("Erro:", erro);
-        showToast("Erro ao gerar novo código: " + erro.message, "danger");
-    }
-}
-
-// ============================================================
-// FUNÇÃO PARA COPIAR O CÓDIGO
-// ============================================================
-function copiarCodigo(codigo) {
-    if (!codigo) {
-        showToast("Nada para copiar", "warning");
-        return;
-    }
-    
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(codigo).then(() => {
-            showToast("Código copiado para a área de transferência!", "success");
-        }).catch(() => {
-            copiarCodigoFallback(codigo);
-        });
-    } else {
-        copiarCodigoFallback(codigo);
-    }
-}
-
-function copiarCodigoFallback(codigo) {
-    const input = document.createElement('input');
-    input.value = codigo;
-    input.style.position = 'fixed';
-    input.style.opacity = '0';
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand('copy');
-    input.remove();
-    showToast("Código copiado!", "success");
-}
-
-// Funções de recuperação de senha
-window.gerarCodigoRecuperacao = gerarCodigoRecuperacao;
-window.mostrarCodigoRecuperacao = mostrarCodigoRecuperacao;
-window.copiarCodigo = copiarCodigo;
-window.fecharModalCodigo = fecharModalCodigo;
-window.gerarNovoCodigo = gerarNovoCodigo;
+// O bloco do "código de recuperação" foi removido daqui.
+//
+// Ele montava um modal com o código, um cronômetro de 1 minuto e botões de
+// copiar — tudo para o administrador ditar o número para o colaborador. Esse
+// caminho deixou de existir: quem esquece a senha resolve sozinho na tela de
+// login, e o código chega no e-mail dele (POST /api/senha/solicitar-codigo).
 
 // ============================================================
 // FUNÇÃO PARA ABRIR MODAL DE CADASTRO DE USUÁRIO
@@ -9325,7 +9133,7 @@ const PERMISSOES_FORM = [
     ['solicitacao', 'solicitacoes'],
     ['gerenciar_os', 'gerenciar_os'],
     ['prorrogar_os', 'prorrogar_os'],
-    ['solicitar_remanejamento', 'solicitar_remanejamento'],
+    ['aprovar_remanejamento', 'aprovar_remanejamento'],
     ['bipagem_manual', 'bipagem_manual'],
     ['concluidos', 'concluidos'],
     ['certificados', 'certificados'],
@@ -12308,9 +12116,9 @@ async function reutilizarOS(numeroOS) {
         }
 
         const hoje = new Date().toISOString().split('T')[0];
-        const novoNumero = todas.length
-            ? Math.max(...todas.map(w => Number(w.numero_os) || 0)) + 1
-            : 1;
+        // O número da OS nova sai do banco (POST /api/solicitacoes), pelo mesmo
+        // motivo da solicitação comum: contar aqui dá número repetido quando
+        // duas pessoas criam OS ao mesmo tempo.
 
         let instrumentosOrigem = origem.instrumentos;
         if (typeof instrumentosOrigem === 'string') {
@@ -12326,7 +12134,6 @@ async function reutilizarOS(numeroOS) {
         }
 
         const novaOS = {
-            numero_os: novoNumero,
             cliente: origem.cliente || '',
             responsavel: origem.responsavel || '',
             obra: origem.obra || origem.cliente || '',
@@ -12351,6 +12158,9 @@ async function reutilizarOS(numeroOS) {
             try { const e = await resposta.json(); msg = e.erro || msg; } catch (e) {}
             throw new Error(msg);
         }
+
+        const criada = await resposta.json().catch(() => ({}));
+        const novoNumero = criada?.numero_os ?? criada?.id ?? '—';
 
         showToast(`OS #OS-${String(novoNumero).padStart(4, '0')} criada a partir da #OS-${String(numeroOS).padStart(4, '0')}!`, "success");
 
@@ -14224,16 +14034,20 @@ function remAtualizarObrigatorios() {
     const temObra = !!(selObra && selObra.value);
     const temResp = !!(selResp && selResp.value);
 
+    // UM DOS DOIS BASTA — e cada combinação leva a um lugar diferente, então
+    // o aviso diz qual regra está valendo agora, e não uma cobrança genérica.
     let texto;
     if (temObra && temResp) {
-        texto = 'A ferramenta passa a pertencer à O.S. escolhida. O técnico consta como quem recebeu, '
-              + 'mas a devolução é do responsável por aquela O.S. — ele não verá "Estou devolvendo".';
+        texto = 'A ferramenta passa a pertencer à O.S. escolhida e será exigida na devolutiva dela. '
+              + 'Quem você indicou é quem vai assinar o recebimento e responde por ela até lá.';
     } else if (temObra) {
-        texto = 'Sem responsável informado: a ferramenta entra direto na O.S. escolhida e será exigida na devolutiva dela.';
+        texto = 'Sem responsável informado: a ferramenta entra direto na O.S. escolhida e será '
+              + 'exigida na devolutiva dela.';
     } else if (temResp) {
-        texto = 'Sem obra de destino: a ferramenta fica com o técnico, que devolve pela aba "Estou devolvendo".';
+        texto = 'Sem obra de destino: a ferramenta fica com o responsável, aparece na Localização '
+              + 'no nome dele, e ele devolve pela aba "Estou devolvendo".';
     } else {
-        texto = '';
+        texto = 'Informe a obra de destino OU quem vai receber — um dos dois basta.';
     }
     aviso.textContent = texto;
     aviso.style.color = (temObra || temResp) ? 'var(--text-muted)' : 'var(--danger, #ef4444)';
@@ -14298,7 +14112,6 @@ window.popularSelectRemHistoricoResponsavel = popularSelectRemHistoricoResponsav
 // ============================================================
 const REM_PAINEIS = {
     choose:     'rem-mode-select',
-    solicitar:  'rem-solicitar-form',
     passando:   'rem-passando-form',
     recebendo:  'rem-recebendo-form',
     devolvendo: 'rem-devolvendo-form',
@@ -14323,16 +14136,7 @@ function showRemMode(mode) {
         btn.classList.toggle('ativa', btn.id === `rem-aba-${remModoAtual}`);
     });
 
-    if (mode === 'solicitar') {
-        if (!remPodeSolicitar()) {
-            showToast('Você não tem permissão para solicitar remanejamento.', 'danger');
-            showRemMode('passando');
-            return;
-        }
-        remSolItensBipados = [];
-        remSolMontarCampos();
-        renderRemSolItensBipados();
-    } else if (mode === 'passando') {
+    if (mode === 'passando') {
         // Reinicia a lista de ferramentas bipadas
         remItensBipados = [];
         // Sair e voltar à aba cancela a execução em andamento: os campos
@@ -14419,327 +14223,72 @@ function remMontarCampoBipagem() {
 window.remMontarCampoBipagem = remMontarCampoBipagem;
 
 // ============================================================
-// SOLICITAR REMANEJAMENTO (gestor)
+// REMANEJAMENTO — QUEM COMEÇA É QUEM ESTÁ COM A FERRAMENTA
 //
-// O gestor define tudo — obra de origem, quem envia, quem recebe, obra de
-// destino e as ferramentas — e a solicitação chega ao responsável apenas
-// para ser EXECUTADA. Enquanto ela não é enviada, nada sai do lugar: a
-// ferramenta continua na obra de origem e a OS de lá continua cobrando a
-// devolução dela.
+// A aba "Solicitar Remanejamento" (um gestor montando o remanejamento de
+// outra pessoa) deixou de existir. O caminho agora é um só, e começa em
+// "Estou Passando":
+//
+//   1. Quem está com a ferramenta preenche de onde ela sai, para quem vai e
+//      para qual obra, bipa as TAGs e clica em "Enviar Solicitação".
+//   2. O pedido cai na aba "Aprovar", para quem tem a permissão
+//      "Aprovar remanejamento".
+//   3. Aprovado, ele aparece em "Estou Recebendo" para o responsável de
+//      destino assinar o termo e assumir a ferramenta.
+//
+// NADA SAI DA OBRA ANTES DA APROVAÇÃO: a baixa na OS de origem acontece no
+// POST /api/remanejamentos/aprovar, não no envio.
+//
+// Estas funções continuam existindo (vazias ou reduzidas) porque outras
+// partes da tela ainda as chamam — remAtualizarAbas, showRemMode e o contador
+// do menu. Removê-las quebraria a aba inteira por um ReferenceError.
 // ============================================================
 let remSolItensBipados = [];
-
-function remPodeSolicitar() {
-    return typeof usuarioTemPermissao === 'function'
-        ? usuarioTemPermissao('solicitar_remanejamento')
-        : true;
-}
-window.remPodeSolicitar = remPodeSolicitar;
-
-function remSolMontarCampos() {
-    _remPopularSelectObra(document.getElementById('rem-sol-origem'));
-    _remPopularSelectOSDestino(document.getElementById('rem-sol-obra-destino'));
-    remSolPopularResponsaveis('rem-sol-remetente');
-    remSolPopularResponsaveis('rem-sol-destinatario');
-    const box = document.getElementById('rem-sol-campo-bipagem');
-    if (box) {
-        box.innerHTML = remCampoBipagemHTML('rem-sol-codigo', 'remSolBiparFerramenta');
-        remLigarLeitor('rem-sol-codigo', 'remSolBiparFerramenta');
-    }
-}
-window.remSolMontarCampos = remSolMontarCampos;
-
-// Mesma regra da Solicitação de OS: só cargos marcados como "Responsável por
-// obra" podem enviar ou receber um remanejamento.
-function remSolPopularResponsaveis(idSelect) {
-    const select = document.getElementById(idSelect);
-    if (!select) return;
-    const selecionado = select.value;
-    const lista = (users || [])
-        .filter(u => u && u.nome && u.ativo !== false)
-        .filter(u => typeof cargoEhResponsavelPorObra !== 'function' || cargoEhResponsavelPorObra(u.cargo))
-        .slice()
-        .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
-
-    select.innerHTML = '<option value="">Selecione o responsável</option>'
-        + lista.map(u => `<option value="${u.nome}">${u.nome}</option>`).join('');
-    if (selecionado && lista.some(u => u.nome === selecionado)) select.value = selecionado;
-    if (!lista.length) select.innerHTML = '<option value="">Nenhum cargo marcado como "Responsável por obra"</option>';
-}
-
-async function remSolBiparFerramenta() {
-    const input = document.getElementById('rem-sol-codigo');
-    const codigo = String(input?.value || '').trim();
-    if (!codigo) { showToast('Informe ou bipe o código da ferramenta.', 'danger'); return; }
-
-    if (remSolItensBipados.some(i => String(i.tag).toUpperCase() === codigo.toUpperCase())) {
-        showToast('Esta ferramenta já foi bipada.', 'warning');
-        if (input) input.value = '';
-        return;
-    }
-
-    try {
-        const resp = await fetch(`${API_URL}/ferramentas/codigo/${encodeURIComponent(codigo)}`);
-        const dados = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            showToast(dados.erro || 'Ferramenta não encontrada para esse código.', 'danger');
-            return;
-        }
-        remSolItensBipados.push({ id: dados.id, tag: dados.tag, tipo: dados.tipo });
-        showToast(`${dados.tag} adicionada.`, 'success');
-        if (input) input.value = '';
-        renderRemSolItensBipados();
-    } catch (err) {
-        showToast('Erro ao validar código: ' + err.message, 'danger');
-    }
-}
-window.remSolBiparFerramenta = remSolBiparFerramenta;
-
-function remSolRemoverItem(idx) {
-    remSolItensBipados.splice(idx, 1);
-    renderRemSolItensBipados();
-}
-window.remSolRemoverItem = remSolRemoverItem;
-
-function renderRemSolItensBipados() {
-    const box = document.getElementById('rem-sol-itens-bipados');
-    if (box) {
-        box.innerHTML = remSolItensBipados.length ? remSolItensBipados.map((it, idx) => `
-            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;border:1px solid var(--border-color);border-radius:0.4rem;padding:0.4rem 0.6rem;">
-                <span style="font-family:monospace;font-weight:700;font-size:0.8rem;color:var(--text-main);">${it.tag}</span>
-                <span style="font-size:0.72rem;color:var(--text-muted);">${it.tipo || ''}</span>
-                <button type="button" class="btn btn-outline btn-sm" style="margin-left:auto;padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="remSolRemoverItem(${idx})">Remover</button>
-            </div>`).join('')
-            : `<div style="font-size:0.78rem;color:var(--text-muted);">Nenhuma ferramenta bipada ainda.</div>`;
-    }
-    const contador = document.getElementById('rem-sol-contador');
-    if (contador) {
-        const total = remSolItensBipados.length;
-        contador.textContent = `${total} instrumento${total !== 1 ? 's' : ''}`;
-    }
-}
-window.renderRemSolItensBipados = renderRemSolItensBipados;
-
-async function submitRemSolicitacao() {
-    if (!remPodeSolicitar()) {
-        showToast('Você não tem permissão para solicitar remanejamento.', 'danger');
-        return;
-    }
-
-    const origem = document.getElementById('rem-sol-origem')?.value || '';
-    const remetente = document.getElementById('rem-sol-remetente')?.value || '';
-    const destinatario = document.getElementById('rem-sol-destinatario')?.value || '';
-    const selDestino = document.getElementById('rem-sol-obra-destino');
-    const osDestinoId = selDestino?.value || '';
-    const nomeObraDestino = selDestino?.selectedOptions?.[0]?.dataset?.obra || '';
-    const observacao = document.getElementById('rem-sol-obs')?.value?.trim() || null;
-
-    if (!origem) { showToast('Selecione a obra de origem.', 'danger'); document.getElementById('rem-sol-origem')?.focus(); return; }
-    if (!remetente) { showToast('Informe quem vai fazer o remanejamento.', 'danger'); return; }
-    if (!destinatario) { showToast('Informe quem vai receber o remanejamento.', 'danger'); return; }
-    if (!remSolItensBipados.length) { showToast('Bipe pelo menos uma ferramenta.', 'danger'); return; }
-
-    const gestor = _remUsuarioLogado();
-
-    try {
-        const resp = await fetch(`${API_URL}/remanejamentos/solicitar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                itens: remSolItensBipados.map(i => ({ ferramenta_id: i.id, tag: i.tag })),
-                origem,
-                destino: nomeObraDestino || (destinatario ? `Com ${destinatario}` : null),
-                os_destino_id: osDestinoId ? parseInt(osDestinoId) : null,
-                responsavel: remetente,
-                destinatario,
-                solicitado_por: gestor.nome || 'Sistema',
-                observacao
-            })
-        });
-        const dados = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
-
-        showToast(
-            `Solicitação enviada para ${remetente} — ${remSolItensBipados.length} ferramenta(s) aguardando o envio.`,
-            'success'
-        );
-
-        remSolItensBipados = [];
-        ['rem-sol-origem', 'rem-sol-remetente', 'rem-sol-destinatario', 'rem-sol-obra-destino', 'rem-sol-obs']
-            .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-        renderRemSolItensBipados();
-
-        await carregarRemanejamentos();
-        await remAtualizarAbas();
-        atualizarNotificacoesRemanejamento();
-    } catch (err) {
-        console.error('Erro ao solicitar remanejamento:', err);
-        showToast('Erro ao solicitar remanejamento: ' + err.message, 'danger');
-    }
-}
-window.submitRemSolicitacao = submitRemSolicitacao;
-
-// ============================================================
-// SOLICITAÇÕES PENDENTES DENTRO DE "ESTOU PASSANDO"
-//
-// Escolhida uma solicitação, os três campos de destino ficam TRAVADOS: quem
-// executa não decide de onde sai, para quem vai nem para qual obra — isso é
-// do gestor. O que ele faz é bipar as ferramentas que já foram definidas.
-// ============================================================
 let remSolicitacoesPendentes = [];
 let remSolicitacaoEmExecucao = null;
 
-async function carregarRemSolicitacoesPendentes() {
-    const nome = _remUsuarioLogado().nome || '';
-    if (!nome) { remSolicitacoesPendentes = []; return remSolicitacoesPendentes; }
-    try {
-        const resp = await fetch(
-            `${API_URL}/remanejamentos/solicitacoes?responsavel=${encodeURIComponent(nome)}`,
-            { cache: 'no-cache' }
-        );
-        if (!resp.ok) throw new Error(`Erro ${resp.status}`);
-        remSolicitacoesPendentes = await resp.json();
-    } catch (err) {
-        console.warn('Não foi possível carregar as solicitações de remanejamento:', err.message);
-        remSolicitacoesPendentes = [];
-    }
-    return remSolicitacoesPendentes;
+// A aba "Solicitar" não existe mais — a resposta é sempre não.
+function remPodeSolicitar() { return false; }
+window.remPodeSolicitar = remPodeSolicitar;
+
+// Quem decide os remanejamentos. Mesma herança de transição da prorrogação:
+// enquanto nenhum cargo tiver a permissão marcada, quem já mandava na OS
+// decide — senão a fila subiria sem ninguém para aprová-la.
+function remPodeAprovar() {
+    if (typeof usuarioTemPermissao !== 'function') return false;
+    // A herança de `aprovar_remanejamento` já é resolvida em
+    // aplicarPermissoesHerdadas — aqui basta perguntar.
+    return usuarioTemPermissao('aprovar_remanejamento');
 }
+window.remPodeAprovar = remPodeAprovar;
+
+function remSolMontarCampos() { /* a tela do gestor não existe mais */ }
+window.remSolMontarCampos = remSolMontarCampos;
+
+function renderRemSolItensBipados() { /* idem */ }
+window.renderRemSolItensBipados = renderRemSolItensBipados;
+
+async function carregarRemSolicitacoesPendentes() { remSolicitacoesPendentes = []; return remSolicitacoesPendentes; }
 window.carregarRemSolicitacoesPendentes = carregarRemSolicitacoesPendentes;
 
-// Agrupa as linhas (uma por ferramenta) na solicitação que as originou.
-//
-// A chave é o `grupo_id`, gravado uma vez por solicitação. Antes o
-// agrupamento era por origem+destino+solicitado_em — e como cada ferramenta é
-// um INSERT com o seu próprio carimbo de tempo, uma solicitação de 2
-// ferramentas virava DOIS cartões, e bipar a segunda TAG respondia "não faz
-// parte desta solicitação". Movimentos antigos (sem grupo_id) continuam
-// caindo na chave velha, agora sem os milissegundos.
-function remAgruparSolicitacoes(linhas) {
-    const grupos = new Map();
-    (linhas || []).forEach(m => {
-        const chave = m.grupo_id
-            ? `g:${m.grupo_id}`
-            : [m.origem || '', m.destino || '', m.destinatario || '', m.solicitado_por || '',
-               String(m.solicitado_em || '').slice(0, 16)].join('|');
-        if (!grupos.has(chave)) {
-            grupos.set(chave, {
-                chave,
-                grupo_id: m.grupo_id || null,
-                ids: [],
-                origem: m.origem || 'Almoxarifado',
-                destino: m.destino || '—',
-                os_destino_id: m.os_destino_id || null,
-                destinatario: m.destinatario || '',
-                solicitado_por: m.solicitado_por || '—',
-                solicitado_em: m.solicitado_em || null,
-                observacao: m.observacao || '',
-                instrumentos: []
-            });
-        }
-        const g = grupos.get(chave);
-        g.ids.push(m.id);
-        g.instrumentos.push({ id: m.ferramenta_id, tag: m.tag, tipo: m.tipo });
-    });
-    return Array.from(grupos.values());
-}
+function remAgruparSolicitacoes() { return []; }
+window.remAgruparSolicitacoes = remAgruparSolicitacoes;
 
 async function renderRemSolicitacoesPendentes() {
     const box = document.getElementById('rem-solicitacoes-pendentes');
-    if (!box) return;
-
-    await carregarRemSolicitacoesPendentes();
-    const grupos = remAgruparSolicitacoes(remSolicitacoesPendentes);
-    window.__remSolicitacoesVisiveis = grupos;
-
-    if (!grupos.length) { box.innerHTML = ''; return; }
-
-    box.innerHTML = `
-        <div style="border:1px solid var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 10%, transparent);border-radius:0.6rem;padding:0.8rem 0.9rem;">
-            <strong style="display:block;font-size:0.88rem;color:var(--warning,#f59e0b);margin-bottom:0.5rem;">
-                Remanejamento pendente — ${grupos.length} solicitação(ões) para você executar
-                (${grupos.reduce((t, g) => t + g.instrumentos.length, 0)} ferramenta(s))
-            </strong>
-            <div style="display:flex;flex-direction:column;gap:0.5rem;">
-                ${grupos.map((g, idx) => `
-                    <div style="border:1px solid var(--border-color);border-radius:0.5rem;padding:0.6rem 0.7rem;background:var(--bg-card);">
-                        <div style="font-size:0.78rem;color:var(--text-muted);">
-                            Solicitada por <strong style="color:var(--text-main);">${baiaEscapar(g.solicitado_por)}</strong>
-                            ${g.solicitado_em ? ` · ${new Date(g.solicitado_em).toLocaleString('pt-BR')}` : ''}
-                        </div>
-                        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.15rem;">
-                            De <strong style="color:var(--text-main);">${baiaEscapar(g.origem)}</strong>
-                            para <strong style="color:var(--text-main);">${baiaEscapar(g.destino)}</strong>
-                            · recebe <strong style="color:var(--text-main);">${baiaEscapar(g.destinatario || '—')}</strong>
-                        </div>
-                        ${g.observacao ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem;">${baiaEscapar(g.observacao)}</div>` : ''}
-                        <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.4rem;">
-                            ${g.instrumentos.map(i => `<span style="background:var(--bg-surface);border:1px solid var(--border-color);padding:0.12rem 0.5rem;border-radius:0.3rem;font-size:0.72rem;font-family:monospace;font-weight:700;color:var(--text-main);">[ ${baiaEscapar(i.tag)} ]</span>`).join('')}
-                        </div>
-                        <button type="button" class="btn btn-primary btn-sm" style="margin-top:0.55rem;padding:0.3rem 0.9rem;font-size:0.78rem;"
-                                onclick="remExecutarSolicitacao(${idx})">Executar este remanejamento</button>
-                    </div>`).join('')}
-            </div>
-        </div>`;
+    if (box) box.innerHTML = '';
 }
 window.renderRemSolicitacoesPendentes = renderRemSolicitacoesPendentes;
 
-function remExecutarSolicitacao(idx) {
-    const g = (window.__remSolicitacoesVisiveis || [])[idx];
-    if (!g) { showToast('Solicitação não encontrada.', 'danger'); return; }
-
-    remSolicitacaoEmExecucao = g;
-    remItensBipados = [];
-    renderRemItensBipados();
-
-    // Os campos passam a mostrar o que o gestor definiu — e ficam travados.
-    const origem = document.getElementById('rem-origem');
-    if (origem) {
-        if (!Array.from(origem.options).some(o => o.value === g.origem)) {
-            origem.insertAdjacentHTML('beforeend', `<option value="${baiaEscapar(g.origem)}">${baiaEscapar(g.origem)}</option>`);
-        }
-        origem.value = g.origem;
-        origem.disabled = true;
-    }
-    const destinatario = document.getElementById('rem-tec-entrega');
-    if (destinatario) {
-        if (!Array.from(destinatario.options).some(o => o.value === g.destinatario)) {
-            destinatario.insertAdjacentHTML('beforeend', `<option value="${baiaEscapar(g.destinatario)}">${baiaEscapar(g.destinatario)}</option>`);
-        }
-        destinatario.value = g.destinatario;
-        destinatario.disabled = true;
-    }
-    const obraDestino = document.getElementById('rem-obra-destino');
-    if (obraDestino) {
-        if (g.os_destino_id) {
-            if (!Array.from(obraDestino.options).some(o => String(o.value) === String(g.os_destino_id))) {
-                obraDestino.insertAdjacentHTML('beforeend', `<option value="${g.os_destino_id}" data-obra="${baiaEscapar(g.destino)}">${baiaEscapar(g.destino)}</option>`);
-            }
-            obraDestino.value = String(g.os_destino_id);
-        } else {
-            obraDestino.value = '';
-        }
-        obraDestino.disabled = true;
-    }
-
-    remTravarCamposDestino();
-    showToast(`Bipe as ${g.instrumentos.length} ferramenta(s) definidas nesta solicitação.`, 'info');
-    document.getElementById('rem-campo-bipagem')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    remAtualizarObrigatorios();
-}
-window.remExecutarSolicitacao = remExecutarSolicitacao;
-
-// Os três campos de destino do "Estou Passando" são SEMPRE somente leitura.
-// Quem decide de onde sai, para quem vai e para qual obra é o gestor, na
-// solicitação; aqui eles só mostram o que foi decidido. Quem executa bipa.
+// Os três campos voltaram a ser editáveis: é quem passa quem os preenche.
 const REM_CAMPOS_TRAVADOS = ['rem-origem', 'rem-tec-entrega', 'rem-obra-destino'];
 
 function remTravarCamposDestino() {
     REM_CAMPOS_TRAVADOS.forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
-        el.disabled = true;
-        el.title = 'Definido pelo gestor na solicitação de remanejamento.';
+        el.disabled = false;
+        el.removeAttribute('title');
     });
 }
 window.remTravarCamposDestino = remTravarCamposDestino;
@@ -14779,18 +14328,6 @@ async function remBiparFerramenta() {
         if (!resp.ok) {
             showToast(dados.erro || 'Ferramenta não encontrada para esse código.', 'danger');
             return;
-        }
-
-        // Executando uma solicitação: a lista foi definida pelo gestor e não
-        // pode crescer aqui. Bipar outra ferramenta é recusado na hora.
-        if (remSolicitacaoEmExecucao) {
-            const previstas = remSolicitacaoEmExecucao.instrumentos
-                .map(i => String(i.tag || '').toUpperCase());
-            if (!previstas.includes(String(dados.tag || '').toUpperCase())) {
-                showToast(`${dados.tag} não faz parte desta solicitação de remanejamento.`, 'danger');
-                if (input) input.select?.();
-                return;
-            }
         }
 
         remItensBipados.push({ id: dados.id, tag: dados.tag, tipo: dados.tipo });
@@ -14881,6 +14418,14 @@ function _remAgrupar(movimentos) {
                 enviado_por: m.enviado_por || m.responsavel || null,
                 recebido_por: m.recebido_por || (recebido ? (m.destinatario || '') : null),
                 devolvido_por: m.devolvido_por || null,
+                // A aprovação é a ponta nova do fluxo: sem ela o histórico
+                // mostrava a passagem como se tivesse saído sozinha da obra.
+                aprovado_por: m.aprovado_por || null,
+                data_aprovacao: m.aprovado_em || null,
+                rejeitado_por: m.rejeitado_por || null,
+                data_rejeicao: m.rejeitado_em || null,
+                motivo_rejeicao: m.motivo_rejeicao || null,
+                recebimento_obs: m.recebimento_obs || null,
                 status: m.status === 'confirmado' ? 'recebido' : m.status,
                 estado_devolucao: m.devolvido_estado || null,
                 observacao: m.observacao || '',
@@ -14934,60 +14479,58 @@ function remGruposHistorico() {
 }
 
 // ============================================================
-// SUBMIT REMANEJAMENTO - PASSANDO
-// ============================================================
-// Confirmar Passagem só existe DENTRO de uma solicitação: obra de origem,
-// quem recebe e obra de destino são do gestor, e esta tela não decide nada
-// disso — ela só bipa o que foi definido. Por isso os três campos ficam
-// travados e o botão exige uma solicitação escolhida.
-async function submitRemPassando() {
-    if (remSolicitacaoEmExecucao) return submitRemEnvioSolicitado();
-
-    showToast(
-        'Escolha uma solicitação de remanejamento acima. A obra de origem, quem recebe e a '
-        + 'obra de destino são definidas pelo gestor que enviou a solicitação.',
-        'danger'
-    );
-    document.getElementById('rem-solicitacoes-pendentes')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-// ============================================================
-// ENVIAR UM REMANEJAMENTO SOLICITADO
+// ENVIAR A SOLICITAÇÃO DE REMANEJAMENTO ("Estou Passando")
 //
-// Todas as ferramentas definidas pelo gestor precisam ser bipadas — não dá
-// para enviar meio remanejamento. Concluído o envio, a passagem segue para
-// quem vai receber, exatamente como um remanejamento comum.
+// O botão era "Confirmar Passagem" e passava a ferramenta na hora. Agora ele
+// é "Enviar Solicitação": o que sai daqui é um pedido em
+// 'aguardando_aprovacao'. A ferramenta continua na obra de origem — e a OS de
+// lá continua cobrando a devolução dela — até que alguém com a permissão
+// "Aprovar remanejamento" decida na aba Aprovar.
 // ============================================================
-async function submitRemEnvioSolicitado() {
-    const g = remSolicitacaoEmExecucao;
-    if (!g) return;
-
-    const previstas = g.instrumentos.map(i => String(i.tag || '').toUpperCase());
-    const bipadas = remItensBipados.map(i => String(i.tag || '').toUpperCase());
-    const faltando = g.instrumentos.filter(i => !bipadas.includes(String(i.tag || '').toUpperCase()));
-
-    if (faltando.length) {
-        showToast(
-            `Bipe TODAS as ferramentas desta solicitação. Faltam: ${faltando.map(i => i.tag).join(', ')}`,
-            'danger'
-        );
-        return;
-    }
-    if (bipadas.some(t => !previstas.includes(t))) {
-        showToast('Há ferramenta bipada que não faz parte desta solicitação.', 'danger');
-        return;
-    }
-
-    const executor = _remUsuarioLogado();
+async function submitRemPassando() {
+    const origem = document.getElementById('rem-origem')?.value || '';
+    const destinatario = document.getElementById('rem-tec-entrega')?.value || '';
+    const selDestino = document.getElementById('rem-obra-destino');
+    const osDestinoId = selDestino?.value || '';
+    const nomeObraDestino = selDestino?.selectedOptions?.[0]?.dataset?.obra || '';
     const observacao = document.getElementById('rem-obs')?.value?.trim() || null;
 
+    if (!origem) {
+        showToast('Selecione a obra de origem.', 'danger');
+        document.getElementById('rem-origem')?.focus();
+        return;
+    }
+    // Um dos dois destinos basta: a ferramenta pode ir para uma obra, para
+    // uma pessoa, ou para as duas coisas. O que não pode é não ir para
+    // lugar nenhum.
+    if (!destinatario && !osDestinoId) {
+        showToast('Informe a obra de destino ou quem vai receber — um dos dois basta.', 'danger');
+        document.getElementById('rem-obra-destino')?.focus();
+        return;
+    }
+    if (!remItensBipados.length) {
+        showToast('Bipe pelo menos uma ferramenta.', 'danger');
+        document.getElementById('rem-codigo')?.focus();
+        return;
+    }
+
+    const eu = _remUsuarioLogado();
+
     try {
-        const resp = await fetch(`${API_URL}/remanejamentos/enviar`, {
+        const resp = await fetch(`${API_URL}/remanejamentos/passar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                ids: g.ids,
-                enviado_por: executor.nome || null,
+                itens: remItensBipados.map(i => ({ ferramenta_id: i.id, tag: i.tag })),
+                origem,
+                // Sem obra de destino, o "destino" do movimento passa a ser a
+                // pessoa: é esse texto que a Localização mostra como o lugar
+                // onde a ferramenta está.
+                destino: nomeObraDestino || (destinatario ? `Com ${destinatario}` : null),
+                os_destino_id: osDestinoId ? parseInt(osDestinoId) : null,
+                destinatario: destinatario || null,
+                solicitado_por: eu.nome || null,
+                solicitado_por_id: eu.id || null,
                 observacao
             })
         });
@@ -14995,28 +14538,33 @@ async function submitRemEnvioSolicitado() {
         if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
 
         showToast(
-            `${g.instrumentos.length} ferramenta(s) enviada(s) — aguardando ${g.destinatario || 'o responsável'} confirmar o recebimento.`,
+            `Solicitação enviada — ${remItensBipados.length} ferramenta(s) aguardando aprovação. `
+            + 'A ferramenta só sai da obra depois do aval.',
             'success'
         );
 
         remItensBipados = [];
-        remLimparExecucaoSolicitacao();
-        const obs = document.getElementById('rem-obs');
-        if (obs) obs.value = '';
+        ['rem-origem', 'rem-tec-entrega', 'rem-obra-destino', 'rem-obs']
+            .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        renderRemItensBipados();
+        remAtualizarObrigatorios();
 
         await carregarRemanejamentos();
         if (typeof carregarSolicitacoes === 'function') await carregarSolicitacoes();
         if (typeof carregarFerramentas === 'function') await carregarFerramentas();
-        renderRemItensBipados();
-        carregarObrasParaRemanejamento();
-        popularSelectRemanejamentoResponsavel();
-        await renderRemSolicitacoesPendentes();
         await remAtualizarAbas();
         atualizarNotificacoesRemanejamento();
     } catch (err) {
-        console.error('Erro ao enviar o remanejamento solicitado:', err);
-        showToast('Erro ao enviar: ' + err.message, 'danger');
+        console.error('Erro ao enviar a solicitação de remanejamento:', err);
+        showToast('Erro ao enviar a solicitação: ' + err.message, 'danger');
     }
+}
+window.submitRemPassando = submitRemPassando;
+
+// Mantida por compatibilidade: o caminho "gestor solicita, responsável envia"
+// não existe mais, então nada tem o que executar aqui.
+async function submitRemEnvioSolicitado() {
+    return submitRemPassando();
 }
 window.submitRemEnvioSolicitado = submitRemEnvioSolicitado;
 
@@ -15256,9 +14804,24 @@ function remAlertaDevolucaoObrigatoria(rem, assumidaPelaOS) {
 window.remAlertaDevolucaoObrigatoria = remAlertaDevolucaoObrigatoria;
 
 // ============================================================
-// CONFIRMAR RECEBIMENTO (atualiza localização no banco)
+// CONFIRMAR RECEBIMENTO — O TERMO DE RESPONSABILIDADE
+//
+// Receber uma ferramenta remanejada é assumir a responsabilidade por ela, e
+// isso não pode acontecer num clique distraído. Por isso o botão não grava
+// nada: ele abre uma tela que o usuário não consegue confundir com o resto do
+// sistema — fundo vermelho em movimento, como um alerta de emergência — onde
+// ele precisa, nesta ordem:
+//
+//   1. ler o que está assumindo (as ferramentas, de onde vieram, de quem);
+//   2. anotar QUALQUER avaria que a ferramenta já tenha — o campo é opcional
+//      justamente porque o que NÃO for anotado aqui passa a ser dele;
+//   3. marcar "Estou de acordo" (sem isso o botão continua desabilitado);
+//   4. confirmar — e então ainda aparece o segundo aviso, o de que o
+//      almoxarife não conferiu estas ferramentas.
+//
+// Só depois do segundo "Confirmar" o PUT acontece.
 // ============================================================
-async function confirmRemRecebimento() {
+function confirmRemRecebimento() {
     const container = document.getElementById('rem-confirm-receipt');
     const index = parseInt(container?.dataset?.index);
     const rem = (window.__remPendentesVisiveis || [])[index];
@@ -15268,8 +14831,8 @@ async function confirmRemRecebimento() {
         return;
     }
 
-    // Receber é bipar: sem todas as ferramentas confirmadas na mão, o
-    // recebimento não é gravado.
+    // Receber é bipar: sem todas as ferramentas confirmadas na mão, o termo
+    // nem chega a abrir.
     const bipadas = remRecBipados.map(b => String(b.tag || '').toUpperCase());
     const faltando = rem.instrumentos.filter(i => !bipadas.includes(String(i.tag || '').toUpperCase()));
     if (faltando.length) {
@@ -15281,28 +14844,336 @@ async function confirmRemRecebimento() {
         return;
     }
 
+    remAbrirTermoRecebimento(rem);
+}
+window.confirmRemRecebimento = confirmRemRecebimento;
+
+// A animação do fundo é injetada uma vez só, na primeira abertura: manter o
+// @keyframes junto do modal (e não no CSS geral) deixa a tela inteira num
+// lugar só, e ela não é usada em mais nada.
+function remGarantirEstiloEmergencia() {
+    if (document.getElementById('rem-termo-estilo')) return;
+    const estilo = document.createElement('style');
+    estilo.id = 'rem-termo-estilo';
+    estilo.textContent = `
+        @keyframes remEmergenciaFundo {
+            0%   { background-position:   0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position:   0% 50%; }
+        }
+        @keyframes remEmergenciaPulso {
+            0%, 100% { opacity: 0.85; }
+            50%      { opacity: 1;    }
+        }
+
+        /* A TELA INTEIRA, sem sobra.
+
+           Este modal vive DENTRO de um iframe que nem sempre ocupa toda a
+           janela, e o padding do overlay deixava uma faixa clara em volta. O
+           vermelho agora é uma camada fixa em inset:0, sem padding nenhum, e o
+           espaçamento passou para dentro do cartão. */
+        #rem-termo-modal {
+            position: fixed; inset: 0; z-index: 4000;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; overflow: hidden;
+        }
+        #rem-termo-modal .rem-termo-fundo {
+            position: fixed; inset: 0;
+            background: linear-gradient(120deg, #7f1d1d, #dc2626, #b91c1c, #ef4444, #991b1b);
+            background-size: 400% 400%;
+            animation: remEmergenciaFundo 7s ease infinite;
+        }
+
+        /* CABE NA TELA, SEM ROLAR A PÁGINA.
+
+           O cartão é uma coluna de altura limitada: cabeçalho e rodapé ficam
+           parados, e só o miolo rola — assim o "Confirmar" está sempre à vista,
+           que é o ponto: ninguém deve ter de descer a tela para assinar.
+
+           A altura usa 100dvh (dynamic viewport height) porque no celular a
+           barra do navegador entra e sai; com 100vh o rodapé ficava escondido
+           atrás dela. O 100vh antes é o reserva para navegador antigo. */
+        #rem-termo-modal .rem-termo-cartao {
+            position: relative;
+            display: flex; flex-direction: column;
+            width: 100%; max-width: 620px;
+            max-height: 100vh; max-height: 100dvh;
+            margin: 0 auto;
+            background: rgba(0,0,0,0.42);
+            backdrop-filter: blur(3px);
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 0.9rem;
+            box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+            color: #fff;
+            overflow: hidden;
+        }
+        #rem-termo-modal .rem-termo-topo,
+        #rem-termo-modal .rem-termo-rodape { flex-shrink: 0; }
+        #rem-termo-modal .rem-termo-corpo {
+            flex: 1 1 auto; min-height: 0; overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Numa janela alta sobra espaço: o cartão descola das bordas. */
+        @media (min-height: 720px) {
+            #rem-termo-modal { padding: 1rem; }
+            #rem-termo-modal .rem-termo-cartao { max-height: calc(100dvh - 2rem); }
+        }
+
+        /* Em tela baixa tudo encolhe para o rodapé continuar visível. */
+        @media (max-height: 640px) {
+            #rem-termo-modal .rem-termo-cartao { border-radius: 0; border: none; }
+            #rem-termo-modal .rem-termo-compacto { display: none; }
+            #rem-termo-modal .rem-termo-corpo { padding-top: 0.7rem; padding-bottom: 0.7rem; }
+            #rem-termo-modal textarea { rows: 2; }
+        }
+
+        #rem-termo-modal .rem-termo-selo {
+            animation: remEmergenciaPulso 1.6s ease-in-out infinite;
+        }
+        /* Quem pediu menos movimento no sistema recebe o mesmo vermelho, parado. */
+        @media (prefers-reduced-motion: reduce) {
+            #rem-termo-modal .rem-termo-fundo,
+            #rem-termo-modal .rem-termo-selo { animation: none; }
+        }
+    `;
+    document.head.appendChild(estilo);
+}
+
+function remAbrirTermoRecebimento(rem) {
+    remGarantirEstiloEmergencia();
+    document.getElementById('rem-termo-modal')?.remove();
+
+    const eu = _remUsuarioLogado();
+    const destino = rem.os_destino_id ? remNomeOSDestino(rem.os_destino_id) : null;
+
+    const tags = (rem.instrumentos || []).map(i => `
+        <div style="display:flex;align-items:center;gap:0.5rem;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.28);border-radius:0.4rem;padding:0.35rem 0.6rem;">
+            <span style="font-family:monospace;font-weight:800;font-size:0.85rem;color:#fff;">${baiaEscapar(i.tag)}</span>
+            <span style="font-size:0.74rem;color:rgba(255,255,255,0.82);">${baiaEscapar(i.tipo || '')}</span>
+        </div>`).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'rem-termo-modal';
+    modal.innerHTML = `
+        <div class="rem-termo-fundo"></div>
+        <div class="rem-termo-cartao">
+
+            <div class="rem-termo-topo" style="display:flex;align-items:center;gap:0.7rem;padding:0.85rem 1.2rem 0.7rem;border-bottom:1px solid rgba(255,255,255,0.25);">
+                <span class="rem-termo-selo" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:2.3rem;height:2.3rem;border-radius:50%;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.5);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" style="width:1.25rem;height:1.25rem;">
+                        <path d="M12 9v4"/><path d="M12 17h.01"/>
+                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    </svg>
+                </span>
+                <div style="min-width:0;">
+                    <div style="font-size:1.02rem;font-weight:900;letter-spacing:0.01em;">Termo de responsabilidade</div>
+                    <div style="font-size:0.78rem;color:rgba(255,255,255,0.85);">
+                        ${baiaEscapar(eu.nome || 'Você')}, você está assumindo ${(rem.instrumentos || []).length} ferramenta(s).
+                    </div>
+                </div>
+            </div>
+
+            <div class="rem-termo-corpo" style="padding:0.85rem 1.2rem;">
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;font-size:0.8rem;margin-bottom:0.7rem;">
+                    <div><strong>Obra de origem:</strong> ${baiaEscapar(rem.obra_origem || '—')}</div>
+                    <div><strong>Enviado por:</strong> ${baiaEscapar(rem.enviado_por || rem.remetente_nome || '—')}</div>
+                    ${destino ? `<div style="grid-column:span 2;"><strong>Vai responder pela O.S.:</strong> ${baiaEscapar(destino)}</div>` : ''}
+                </div>
+
+                <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.75rem;">${tags}</div>
+
+                <div style="border:1px solid rgba(255,255,255,0.45);background:rgba(0,0,0,0.28);border-radius:0.6rem;padding:0.65rem 0.8rem;margin-bottom:0.7rem;font-size:0.81rem;line-height:1.5;">
+                    Ao confirmar, <strong>a responsabilidade total por estas ferramentas passa a ser sua</strong> —
+                    elas ficam registradas no seu nome até serem devolvidas.
+                    <span class="rem-termo-compacto"><br><br></span>
+                    Avaria devolvida <strong>sem estar escrita nas observações abaixo</strong> será
+                    considerada responsabilidade sua. <strong>Confira as ferramentas agora</strong> e
+                    anote tudo o que já vier danificado, riscado, faltando peça ou fora de funcionamento.
+                </div>
+
+                <label class="form-label" for="rem-termo-obs" style="display:block;font-size:0.78rem;font-weight:800;margin-bottom:0.25rem;color:#fff;">
+                    Observações — avarias que a ferramenta já apresenta <span style="font-weight:600;color:rgba(255,255,255,0.8);">(opcional)</span>
+                </label>
+                <textarea id="rem-termo-obs" rows="2"
+                          placeholder="Ex.: AIF-02 chegou com a tampa da bateria quebrada e sem o cabo USB."
+                          style="width:100%;box-sizing:border-box;padding:0.5rem 0.65rem;border:1px solid rgba(255,255,255,0.5);border-radius:0.5rem;background:rgba(0,0,0,0.3);color:#fff;font-size:0.84rem;font-family:inherit;resize:vertical;"></textarea>
+                <div class="rem-termo-compacto" style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-top:0.2rem;">
+                    Deixando em branco, você declara que recebeu tudo em ordem.
+                </div>
+            </div>
+
+            <div class="rem-termo-rodape" style="padding:0.7rem 1.2rem 0.85rem;border-top:1px solid rgba(255,255,255,0.25);">
+                <!-- O check fica no RODAPÉ, junto do botão que ele libera: no
+                     corpo rolável ele podia sair de vista, e o usuário via um
+                     "Confirmar" apagado sem entender o porquê. -->
+                <label for="rem-termo-check" style="display:flex;align-items:center;gap:0.55rem;cursor:pointer;border:1px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.1);border-radius:0.5rem;padding:0.55rem 0.75rem;margin-bottom:0.6rem;">
+                    <input type="checkbox" id="rem-termo-check" onchange="remTermoAtualizarBotao()"
+                           style="width:1.15rem;height:1.15rem;flex-shrink:0;accent-color:#fff;cursor:pointer;">
+                    <span style="font-size:0.86rem;font-weight:800;">Estou de acordo</span>
+                </label>
+                <div style="display:flex;gap:0.6rem;justify-content:flex-end;flex-wrap:wrap;">
+                    <button type="button" onclick="remTermoFechar()"
+                            style="padding:0.5rem 1.15rem;border:1px solid rgba(255,255,255,0.6);border-radius:0.5rem;background:transparent;color:#fff;font-weight:700;font-size:0.85rem;cursor:pointer;">Cancelar</button>
+                    <button type="button" id="rem-termo-confirmar" disabled onclick="remTermoConfirmar()"
+                            style="padding:0.5rem 1.35rem;border:none;border-radius:0.5rem;background:#fff;color:#b91c1c;font-weight:900;font-size:0.85rem;cursor:pointer;opacity:0.45;">Confirmar</button>
+                </div>
+            </div>
+        </div>`;
+
+    document.body.appendChild(modal);
+    window.__remTermoAtual = rem;
+    remTermoTravarFundo(true);
+    // Sem foco automático no campo de observações: no celular ele abriria o
+    // teclado e comeria metade da tela bem na hora de ler o termo.
+}
+window.remAbrirTermoRecebimento = remAbrirTermoRecebimento;
+
+// Sem o "Estou de acordo" marcado, não há confirmação: o botão fica inerte e
+// visivelmente apagado, para a razão de ele não funcionar ficar evidente.
+// Trava (e destrava) a rolagem da página de trás. Guarda o overflow anterior
+// em vez de assumir '': o app já mexe nele em outras telas, e sobrescrever
+// deixaria a página presa depois de fechar o termo.
+function remTermoTravarFundo(travar) {
+    const alvos = [document.body, document.documentElement];
+    alvos.forEach(el => {
+        if (!el) return;
+        if (travar) {
+            if (el.dataset.remOverflow === undefined) el.dataset.remOverflow = el.style.overflow || '';
+            el.style.overflow = 'hidden';
+        } else if (el.dataset.remOverflow !== undefined) {
+            el.style.overflow = el.dataset.remOverflow;
+            delete el.dataset.remOverflow;
+        }
+    });
+}
+window.remTermoTravarFundo = remTermoTravarFundo;
+
+// Fecha o termo e destrava o fundo. Todo caminho de saída passa por aqui —
+// cancelar, confirmar ou o "Voltar" do segundo aviso —, senão a página
+// ficaria travada sem o vermelho na frente para explicar o porquê.
+function remTermoFechar() {
+    document.getElementById('rem-termo-aviso-almox')?.remove();
+    document.getElementById('rem-termo-modal')?.remove();
+    window.__remTermoAtual = null;
+    remTermoTravarFundo(false);
+}
+window.remTermoFechar = remTermoFechar;
+
+function remTermoAtualizarBotao() {
+    const ok = !!document.getElementById('rem-termo-check')?.checked;
+    const btn = document.getElementById('rem-termo-confirmar');
+    if (!btn) return;
+    btn.disabled = !ok;
+    btn.style.opacity = ok ? '1' : '0.45';
+    btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+window.remTermoAtualizarBotao = remTermoAtualizarBotao;
+
+// SEGUNDO AVISO — o almoxarife não viu estas ferramentas.
+//
+// Um remanejamento vai direto de obra para obra: nenhum almoxarife abriu a
+// caixa no meio do caminho. Quem recebe precisa saber disso ANTES de a
+// responsabilidade passar para o nome dele, e não depois.
+function remTermoConfirmar() {
+    if (!document.getElementById('rem-termo-check')?.checked) {
+        showToast('Marque "Estou de acordo" para confirmar.', 'danger');
+        return;
+    }
+
+    document.getElementById('rem-termo-aviso-almox')?.remove();
+    const aviso = document.createElement('div');
+    aviso.id = 'rem-termo-aviso-almox';
+    aviso.style.cssText = 'position:fixed;inset:0;z-index:4100;display:flex;align-items:center;justify-content:center;padding:1rem;background:rgba(0,0,0,0.6);';
+    aviso.innerHTML = `
+        <div style="width:100%;max-width:480px;background:var(--bg-card);border-radius:0.75rem;box-shadow:0 24px 70px rgba(0,0,0,0.5);overflow:hidden;">
+            <div style="display:flex;gap:0.8rem;align-items:flex-start;padding:1.15rem 1.35rem 0.9rem;">
+                <span style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:2.3rem;height:2.3rem;border-radius:50%;background:color-mix(in srgb, var(--warning,#f59e0b) 20%, transparent);color:var(--warning,#f59e0b);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:1.25rem;height:1.25rem;"><circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+                </span>
+                <div style="min-width:0;">
+                    <div style="font-size:1.02rem;font-weight:800;color:var(--text-main);margin-bottom:0.35rem;">
+                        Estas ferramentas não foram conferidas pelo almoxarife
+                    </div>
+                    <p style="font-size:0.84rem;color:var(--text-muted);line-height:1.55;margin:0;">
+                        Este remanejamento foi de obra para obra: <strong>nenhum almoxarife abriu, testou
+                        ou conferiu</strong> o que está chegando até você. O estado em que a ferramenta se
+                        encontra é o que você acabou de verificar por conta própria.
+                    </p>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.6rem;justify-content:flex-end;padding:0.85rem 1.35rem;border-top:1px solid var(--border-color);background:var(--bg-surface);">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('rem-termo-aviso-almox')?.remove()"
+                        style="padding:0.5rem 1.1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);font-weight:600;font-size:0.85rem;cursor:pointer;">Voltar</button>
+                <button type="button" class="btn btn-primary" id="rem-termo-final" onclick="remGravarRecebimento()"
+                        style="padding:0.5rem 1.3rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:800;font-size:0.85rem;cursor:pointer;">Confirmar</button>
+            </div>
+        </div>`;
+    document.body.appendChild(aviso);
+}
+window.remTermoConfirmar = remTermoConfirmar;
+
+// Só aqui a responsabilidade muda de dono, de verdade.
+async function remGravarRecebimento() {
+    const rem = window.__remTermoAtual;
+    if (!rem) { showToast('Remanejamento não encontrado!', 'danger'); return; }
+
+    const btn = document.getElementById('rem-termo-final');
+    if (btn) { btn.disabled = true; btn.textContent = 'Confirmando...'; }
+
     const quemRecebe = _remUsuarioLogado().nome || null;
+    const observacao = String(document.getElementById('rem-termo-obs')?.value || '').trim() || null;
 
     try {
         for (const movId of rem.ids) {
             const resp = await fetch(`${API_URL}/remanejamentos/${movId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status: 'confirmado', usuario: quemRecebe })
+                body: JSON.stringify({
+                    status: 'confirmado',
+                    usuario: quemRecebe,
+                    recebimento_obs: observacao,
+                    recebimento_ciente: true
+                })
             });
             if (!resp.ok) throw new Error(`Erro ${resp.status}`);
         }
         remRecBipados = [];
 
+        remTermoFechar();
+
+        const container = document.getElementById('rem-confirm-receipt');
+        if (container) container.style.display = 'none';
+
         // Com obra de destino, quem assume a devolução é a O.S.: nada de
         // "Estou devolvendo" para quem recebeu.
         const assumidaPelaOS = !!rem.os_destino_id;
-        if (container) container.style.display = 'none';
 
         // A devolução é obrigatória: quem recebe fica com a ferramenta no
         // nome dele até devolver. Um toast some sozinho e passa batido, então
         // isso vira um alerta que precisa ser fechado na mão.
         remAlertaDevolucaoObrigatoria(rem, assumidaPelaOS);
+
+        if (typeof registrarLog === 'function') {
+            registrarLog(
+                'conferir', 'remanejamento',
+                `Recebimento confirmado — ${rem.instrumentos.length} ferramenta(s)`,
+                {
+                    entidade: 'Remanejamento',
+                    detalhes: {
+                        contexto: {
+                            'Ferramentas': rem.instrumentos.map(i => i.tag).join(', '),
+                            'Obra de origem': rem.obra_origem || '—',
+                            'Enviado por': rem.enviado_por || rem.remetente_nome || '—',
+                            'Recebido por': quemRecebe || '—',
+                            'Termo aceito': 'Sim (Estou de acordo)',
+                            'Avarias anotadas no recebimento': observacao || 'nenhuma'
+                        }
+                    }
+                }
+            );
+        }
 
         await carregarRemanejamentos();
         await carregarFerramentas();
@@ -15314,8 +15185,10 @@ async function confirmRemRecebimento() {
     } catch (err) {
         console.error("Erro ao confirmar recebimento:", err);
         showToast(`Erro ao confirmar recebimento: ${err.message}`, "danger");
+        if (btn) { btn.disabled = false; btn.textContent = 'Confirmar'; }
     }
 }
+window.remGravarRecebimento = remGravarRecebimento;
 
 // ============================================================
 // ESTOU DEVOLVENDO
@@ -15352,20 +15225,10 @@ window.carregarRemDevolvendo = carregarRemDevolvendo;
 async function remAtualizarAbas() {
     await carregarRemDevolvendo();
 
-    // A aba de solicitar só existe para quem tem a permissão.
-    const abaSolicitar = document.getElementById('rem-aba-solicitar');
-    if (abaSolicitar) abaSolicitar.style.display = remPodeSolicitar() ? '' : 'none';
-    if (!remPodeSolicitar() && remModoAtual === 'solicitar') showRemMode('passando');
-
-    // Solicitações que ESTE usuário precisa executar viram o contador da aba
-    // "Estou passando" — é o aviso de "remanejamento pendente".
-    await carregarRemSolicitacoesPendentes();
+    // "Estou passando" não tem mais fila: ela é o ponto de PARTIDA do
+    // remanejamento, não uma lista de tarefas que outra pessoa deixou.
     const badgeSol = document.getElementById('rem-aba-badge-passando');
-    if (badgeSol) {
-        const grupos = remAgruparSolicitacoes(remSolicitacoesPendentes).length;
-        badgeSol.textContent = grupos;
-        badgeSol.style.display = grupos ? 'inline-flex' : 'none';
-    }
+    if (badgeSol) badgeSol.style.display = 'none';
 
     const aba = document.getElementById('rem-aba-devolvendo');
     const badgeDev = document.getElementById('rem-aba-badge-devolvendo');
@@ -15700,9 +15563,13 @@ async function renderRemHistorico() {
                 ? '<span class="badge badge-success">Concluído</span>'
                 : rem.status === 'recebido'
                     ? '<span class="badge badge-success">Recebido</span>'
-                    : rem.status === 'solicitado'
-                        ? '<span class="badge badge-purple">Solicitado</span>'
-                        : '<span class="badge badge-warning">Pendente</span>';
+                    : rem.status === 'aguardando_aprovacao'
+                        ? '<span class="badge badge-purple">Aguardando aprovação</span>'
+                        : rem.status === 'rejeitado'
+                            ? '<span class="badge badge-danger">Rejeitado</span>'
+                            : rem.status === 'solicitado'
+                                ? '<span class="badge badge-purple">Solicitado</span>'
+                                : '<span class="badge badge-warning">Aguardando recebimento</span>';
         const obraQueAssumiu = remNomeOSDestino(rem.os_destino_id);
 
         // As quatro pontas do fluxo, uma linha cada. Só aparece a linha que
@@ -15720,6 +15587,14 @@ async function renderRemHistorico() {
                         <div style="font-size:0.75rem;color:var(--text-muted);">Obra: <strong>${histEscapar(rem.obra_origem)}</strong></div>
                         ${papel('Solicitada por', rem.solicitado_por, rem.data_solicitacao)}
                         ${papel('Enviada por', rem.enviado_por || rem.remetente_nome, rem.data_envio || rem.data)}
+                        ${papel('Aprovada por', rem.aprovado_por, rem.data_aprovacao, 'var(--success,#10b981)')}
+                        ${papel('Rejeitada por', rem.rejeitado_por, rem.data_rejeicao, 'var(--danger,#ef4444)')}
+                        ${rem.motivo_rejeicao ? `
+                        <div style="font-size:0.75rem;color:var(--danger,#ef4444);">Motivo: ${histEscapar(rem.motivo_rejeicao)}</div>` : ''}
+                        ${rem.recebimento_obs ? `
+                        <div style="font-size:0.75rem;color:var(--warning,#f59e0b);">
+                            Avaria anotada no recebimento: <strong>${histEscapar(rem.recebimento_obs)}</strong>
+                        </div>` : ''}
                         ${rem.recebido_por
                             ? papel('Recebida por', rem.recebido_por, rem.data_recebimento)
                             : `<div style="font-size:0.75rem;color:var(--text-muted);">Aguardando recebimento de: <strong>${histEscapar(rem.destinatario_nome || '—')}</strong></div>`}
@@ -15751,11 +15626,11 @@ async function renderRemHistorico() {
 }
 
 // Apagar histórico é destrutivo e não desfaz nada do que o movimento causou —
-// por isso fica atrás da mesma permissão de quem administra as OS ou solicita
-// remanejamento.
+// por isso fica atrás da mesma permissão de quem administra as OS ou decide os
+// remanejamentos.
 function remPodeExcluirHistorico() {
     if (typeof usuarioTemPermissao !== 'function') return true;
-    return usuarioTemPermissao('gerenciar_os') || usuarioTemPermissao('solicitar_remanejamento');
+    return usuarioTemPermissao('gerenciar_os') || usuarioTemPermissao('aprovar_remanejamento');
 }
 window.remPodeExcluirHistorico = remPodeExcluirHistorico;
 

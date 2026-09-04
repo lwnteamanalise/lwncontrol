@@ -146,6 +146,7 @@ async function renderAprovacaoOS(recarregar) {
         if (recarregar !== false) {
             if (typeof carregarSolicitacoes === 'function') await carregarSolicitacoes();
             if (typeof carregarProrrogacoesPendentes === 'function') await carregarProrrogacoesPendentes();
+            await aprovCarregarRemanejamentos();
         }
 
         const pendentes = (typeof osAguardandoMinhaAprovacao === 'function')
@@ -193,7 +194,8 @@ async function renderAprovacaoOS(recarregar) {
                 ${decididasPorMim.map(os => aprovCardOS(os, true)).join('')}
             </div>` : '';
 
-        container.innerHTML = cabecalho + aprovBlocoProrrogacoes() + corpo + blocoAcompanhar + reprovadas;
+        container.innerHTML = cabecalho + aprovBlocoRemanejamentos() + aprovBlocoProrrogacoes()
+                            + corpo + blocoAcompanhar + reprovadas;
     } catch (err) {
         console.error('Erro ao carregar aprovações:', err);
         container.innerHTML = `
@@ -692,6 +694,7 @@ async function aprovAtualizarTelas() {
         // Uma prorrogação decidida sai da fila; uma OS aprovada não mexe nela,
         // mas custa uma leitura e mantém as duas listas em sincronia.
         if (typeof carregarProrrogacoesPendentes === 'function') await carregarProrrogacoesPendentes();
+        await aprovCarregarRemanejamentos();
     } catch (e) {
         console.warn('Decisão registrada, mas houve erro ao recarregar:', e.message);
     }
@@ -1009,3 +1012,240 @@ async function confirmarRejeicaoProrrogacao(id) {
     );
 }
 window.confirmarRejeicaoProrrogacao = confirmarRejeicaoProrrogacao;
+
+
+// ============================================================
+// REMANEJAMENTO — DECISÃO
+//
+// "Estou passando" deixou de mover a ferramenta na hora: o que sai de lá é um
+// pedido, e ele cai aqui. Enquanto ninguém decide, a ferramenta continua na
+// obra de origem e a OS de lá continua cobrando a devolução dela.
+//
+//   Aprovar  -> a ferramenta sai da obra de origem AGORA e o pedido segue
+//               para "Estou recebendo", onde quem recebe assina o termo
+//   Rejeitar -> nada se move; o motivo é obrigatório e fica no histórico
+//
+// Quem decide precisa da permissão "Aprovar remanejamento"; sem ela o bloco
+// nem aparece. O backend confere de novo — a tela nunca é a única barreira.
+// ============================================================
+let aprovRemanejamentos = [];
+
+function aprovPodeDecidirRemanejamento() {
+    return typeof remPodeAprovar === 'function' && remPodeAprovar();
+}
+
+async function aprovCarregarRemanejamentos() {
+    if (!aprovPodeDecidirRemanejamento()) { aprovRemanejamentos = []; return aprovRemanejamentos; }
+    try {
+        const resp = await fetch(`${API_URL}/remanejamentos/aprovacoes`, { cache: 'no-store' });
+        aprovRemanejamentos = resp.ok ? (await resp.json()) : [];
+        if (!Array.isArray(aprovRemanejamentos)) aprovRemanejamentos = [];
+    } catch (err) {
+        console.warn('Não foi possível carregar os remanejamentos pendentes:', err.message);
+        aprovRemanejamentos = [];
+    }
+    window.aprovRemanejamentos = aprovRemanejamentos;
+    return aprovRemanejamentos;
+}
+window.aprovCarregarRemanejamentos = aprovCarregarRemanejamentos;
+
+// Um pedido com 3 ferramentas grava 3 linhas; o `grupo_id` é o carimbo da
+// remessa e é por ele que a tela mostra UM cartão em vez de três.
+function aprovAgruparRemanejamentos(linhas) {
+    const mapa = new Map();
+    (linhas || []).forEach(l => {
+        const chave = l.grupo_id || `${l.origem}|${l.destino}|${l.responsavel}|${l.criado_em}`;
+        if (!mapa.has(chave)) {
+            mapa.set(chave, {
+                grupo_id: l.grupo_id || null,
+                ids: [],
+                instrumentos: [],
+                origem: l.origem,
+                destino: l.destino,
+                os_destino_id: l.os_destino_id,
+                responsavel: l.responsavel,       // quem está passando
+                destinatario: l.destinatario,     // quem vai receber
+                solicitado_por: l.solicitado_por,
+                observacao: l.observacao,
+                criado_em: l.criado_em
+            });
+        }
+        const g = mapa.get(chave);
+        g.ids.push(l.id);
+        g.instrumentos.push({ id: l.ferramenta_id, tag: l.tag, tipo: l.tipo });
+    });
+    return Array.from(mapa.values());
+}
+window.aprovAgruparRemanejamentos = aprovAgruparRemanejamentos;
+
+function aprovGrupoRemanejamento(grupoId) {
+    return aprovAgruparRemanejamentos(aprovRemanejamentos)
+        .find(g => String(g.grupo_id) === String(grupoId)) || null;
+}
+
+function aprovBlocoRemanejamentos() {
+    if (!aprovPodeDecidirRemanejamento()) return '';
+    const grupos = aprovAgruparRemanejamentos(aprovRemanejamentos);
+    if (!grupos.length) return '';
+
+    return `
+        <div style="margin-bottom:1.75rem;">
+            <div style="font-size:0.85rem;font-weight:800;color:var(--text-main);margin-bottom:0.2rem;">
+                Remanejamentos (${grupos.length})
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.6rem;">
+                Ferramentas que alguém quer passar de uma obra para outra. Enquanto você não decide,
+                elas continuam na obra de origem.
+            </div>
+            ${grupos.map(aprovCardRemanejamento).join('')}
+        </div>`;
+}
+window.aprovBlocoRemanejamentos = aprovBlocoRemanejamentos;
+
+function aprovCardRemanejamento(g) {
+    const tags = g.instrumentos
+        .map(i => `<span style="font-family:monospace;font-weight:700;font-size:0.74rem;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:0.3rem;padding:0.15rem 0.5rem;color:var(--text-main);">${aprovEscapar(i.tag)}</span>`)
+        .join(' ');
+
+    return `
+        <div class="aprov-card" id="aprov-rem-card-${aprovEscapar(g.grupo_id || '')}">
+            <div class="aprov-card-topo">
+                <span style="font-weight:800;font-size:0.95rem;color:var(--primary);">Remanejamento</span>
+                <span class="badge badge-warning" style="font-size:0.7rem;">Aguardando aprovação</span>
+                <span style="font-size:0.72rem;color:var(--text-muted);">
+                    ${aprovEscapar(g.origem || '—')} → <strong style="color:var(--warning,#f59e0b);">${aprovEscapar(g.destino || '—')}</strong>
+                </span>
+                <span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted);">
+                    ${g.instrumentos.length} ferramenta(s)
+                </span>
+            </div>
+
+            <div class="aprov-card-grid">
+                <div><strong>Obra de origem:</strong> ${aprovEscapar(g.origem || '—')}</div>
+                <div><strong>Obra de destino:</strong> ${aprovEscapar(g.destino || '—')}</div>
+                <div><strong>Quem está passando:</strong> ${aprovEscapar(g.responsavel || g.solicitado_por || '—')}</div>
+                <div><strong>Quem vai receber:</strong> ${aprovEscapar(g.destinatario || '—')}</div>
+                <div><strong>Pedido em:</strong> ${g.criado_em ? new Date(g.criado_em).toLocaleString('pt-BR') : '—'}</div>
+            </div>
+
+            <div style="padding:0 0.9rem 0.8rem;">
+                <div style="font-size:0.78rem;font-weight:700;color:var(--text-main);margin-bottom:0.3rem;">Ferramentas</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.3rem;">${tags}</div>
+                ${g.observacao ? `
+                <div style="font-size:0.78rem;font-weight:700;color:var(--text-main);margin:0.6rem 0 0.25rem;">Observação de quem está passando</div>
+                <div style="border:1px solid var(--border-color);border-radius:0.5rem;padding:0.5rem 0.7rem;font-size:0.8rem;color:var(--text-main);">
+                    ${aprovEscapar(g.observacao)}
+                </div>` : ''}
+            </div>
+
+            <div class="aprov-card-rodape">
+                <button class="btn btn-outline" style="border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);"
+                        title="Recusar — a ferramenta continua onde está"
+                        onclick="abrirRejeicaoRemanejamento('${aprovEscapar(g.grupo_id || '')}')">Rejeitar</button>
+                <button class="btn btn-primary"
+                        onclick="abrirAprovacaoRemanejamento('${aprovEscapar(g.grupo_id || '')}')">Aprovar</button>
+            </div>
+        </div>`;
+}
+window.aprovCardRemanejamento = aprovCardRemanejamento;
+
+function abrirAprovacaoRemanejamento(grupoId) {
+    const g = aprovGrupoRemanejamento(grupoId);
+    if (!g) { showToast('Remanejamento não encontrado.', 'danger'); return; }
+
+    aprovAbrirModal('aprov-modal-remanejar', 'Aprovar remanejamento', `
+        <p style="font-size:0.88rem;color:var(--text-main);margin-bottom:0.75rem;">
+            Você está liberando <strong>${g.instrumentos.length} ferramenta(s)</strong> de
+            <strong>${aprovEscapar(g.origem || '—')}</strong> para
+            <strong>${aprovEscapar(g.destino || '—')}</strong>.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.75rem;">
+            ${g.instrumentos.map(i => `<span style="font-family:monospace;font-weight:700;font-size:0.74rem;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:0.3rem;padding:0.15rem 0.5rem;">${aprovEscapar(i.tag)}</span>`).join('')}
+        </div>
+        <div style="border:1px solid var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 12%, transparent);border-radius:0.5rem;padding:0.7rem 0.85rem;font-size:0.8rem;color:var(--text-main);">
+            Ao aprovar, estas ferramentas <strong>saem da obra de origem imediatamente</strong> e
+            passam a esperar a confirmação de <strong>${aprovEscapar(g.destinatario || '—')}</strong>
+            na aba "Estou recebendo".
+        </div>
+    `, `
+        <button class="btn btn-outline" onclick="aprovFechar('aprov-modal-remanejar')">Cancelar</button>
+        <button class="btn btn-primary" id="aprov-btn-remanejar"
+                onclick="confirmarAprovacaoRemanejamento('${aprovEscapar(grupoId)}')">Sim, aprovar</button>
+    `);
+}
+window.abrirAprovacaoRemanejamento = abrirAprovacaoRemanejamento;
+
+function abrirRejeicaoRemanejamento(grupoId) {
+    const g = aprovGrupoRemanejamento(grupoId);
+    if (!g) { showToast('Remanejamento não encontrado.', 'danger'); return; }
+
+    aprovAbrirModal('aprov-modal-remanejar-rejeitar', 'Rejeitar remanejamento', `
+        <p style="font-size:0.88rem;color:var(--text-main);margin-bottom:0.75rem;">
+            As ${g.instrumentos.length} ferramenta(s) continuam em
+            <strong>${aprovEscapar(g.origem || '—')}</strong> e seguem sendo cobradas na devolutiva de lá.
+        </p>
+        <label class="form-label" for="aprov-rem-motivo" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.25rem;">
+            Motivo da rejeição <span style="color:var(--danger,#ef4444);">*</span>
+        </label>
+        <textarea id="aprov-rem-motivo" class="form-input" rows="3" required
+                  placeholder="Explique por que este remanejamento não vai acontecer..."
+                  style="width:100%;font-size:0.85rem;"
+                  oninput="document.getElementById('aprov-btn-remanejar-rejeitar').disabled = this.value.trim().length < 3;"></textarea>
+    `, `
+        <button class="btn btn-outline" onclick="aprovFechar('aprov-modal-remanejar-rejeitar')">Cancelar</button>
+        <button class="btn btn-primary" id="aprov-btn-remanejar-rejeitar" disabled
+                style="background:var(--danger,#ef4444);border-color:var(--danger,#ef4444);"
+                onclick="confirmarRejeicaoRemanejamento('${aprovEscapar(grupoId)}')">Rejeitar remanejamento</button>
+    `);
+
+    setTimeout(() => document.getElementById('aprov-rem-motivo')?.focus(), 60);
+}
+window.abrirRejeicaoRemanejamento = abrirRejeicaoRemanejamento;
+
+async function aprovDecidirRemanejamento(grupoId, rota, corpo, botaoId, rotulo, mensagemOk, modalId) {
+    const btn = document.getElementById(botaoId);
+    if (btn) { btn.disabled = true; btn.textContent = rota === 'rejeitar' ? 'Rejeitando...' : 'Aprovando...'; }
+
+    try {
+        const resp = await fetch(`${API_URL}/remanejamentos/${rota}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({ grupo_id: grupoId, usuario: aprovPayloadUsuario() }, corpo || {}))
+        });
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+
+        aprovFechar(modalId);
+        showToast(mensagemOk, 'success');
+        await aprovAtualizarTelas();
+        if (typeof carregarRemanejamentos === 'function') await carregarRemanejamentos();
+        if (typeof remAtualizarAbas === 'function') await remAtualizarAbas();
+    } catch (err) {
+        showToast('Não foi possível concluir: ' + err.message, 'danger');
+        if (btn) { btn.disabled = false; btn.textContent = rotulo; }
+    }
+}
+
+async function confirmarAprovacaoRemanejamento(grupoId) {
+    await aprovDecidirRemanejamento(
+        grupoId, 'aprovar', {}, 'aprov-btn-remanejar', 'Sim, aprovar',
+        'Remanejamento aprovado — as ferramentas foram liberadas para o recebimento.',
+        'aprov-modal-remanejar'
+    );
+}
+window.confirmarAprovacaoRemanejamento = confirmarAprovacaoRemanejamento;
+
+async function confirmarRejeicaoRemanejamento(grupoId) {
+    const motivo = String(document.getElementById('aprov-rem-motivo')?.value || '').trim();
+    if (motivo.length < 3) {
+        showToast('Informe o motivo da rejeição.', 'danger');
+        document.getElementById('aprov-rem-motivo')?.focus();
+        return;
+    }
+    await aprovDecidirRemanejamento(
+        grupoId, 'rejeitar', { motivo }, 'aprov-btn-remanejar-rejeitar', 'Rejeitar remanejamento',
+        'Remanejamento rejeitado — as ferramentas continuam na obra de origem.',
+        'aprov-modal-remanejar-rejeitar'
+    );
+}
+window.confirmarRejeicaoRemanejamento = confirmarRejeicaoRemanejamento;

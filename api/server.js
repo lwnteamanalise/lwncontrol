@@ -8,6 +8,11 @@ require("dotenv").config();
 const pool = require("../db");
 const cache = require("./cache");
 const push = require("./push");
+// Notificação por e-mail (Microsoft Graph) e entrada com conta Outlook.
+// Os dois ficam INERTES enquanto as variáveis do Azure não existirem — não
+// há como um servidor sem configuração derrubar uma operação por causa disso.
+const mail = require("./email");
+const outlook = require("./outlook");
 
 // Lista de colunas de "certificados" SEM a coluna "arquivo" (base64).
 // Descoberta uma única vez no catálogo do Postgres, então funciona
@@ -1014,191 +1019,294 @@ app.delete("/api/usuarios/:id", async (req, res) => {
     }
 });
 
-app.post("/api/usuarios/:id/gerar-codigo", async (req, res) => {
-    console.log(" Gerando/obtendo código para usuário ID:", req.params.id);
-    
+// ============================================================
+// RECUPERAÇÃO DE SENHA — O CÓDIGO VAI PARA O E-MAIL
+//
+// Antes, redefinir senha dependia de um administrador: ele abria a aba
+// Colaboradores, clicava em "Gerar Código", lia o número na tela e passava
+// para a pessoa por telefone ou WhatsApp. O código nunca chegava sozinho a
+// ninguém, e quem esquecia a senha fora do horário comercial ficava parado.
+//
+// Agora o próprio colaborador resolve, em dois passos:
+//
+//   1. POST /api/senha/solicitar-codigo { identificador }
+//      Ele informa o e-mail OU o CPF. Em qualquer um dos dois casos o código
+//      vai para o E-MAIL CADASTRADO daquele colaborador — informar o CPF não
+//      permite escolher para onde o código é enviado.
+//
+//   2. POST /api/senha/redefinir { identificador, codigo, nova_senha }
+//
+// O que o passo 1 responde, de propósito, é sempre a mesma coisa quando o
+// cadastro existe — e diz "procure o responsável" só quando o colaborador
+// existe mas está SEM e-mail, porque aí não há para onde mandar e a pessoa
+// precisa saber o que fazer. Quando o identificador não existe em lugar
+// nenhum, a resposta é a mesma do caso de sucesso: senão esta rota viraria
+// um jeito de descobrir quem tem cadastro na empresa.
+// ============================================================
+const SENHA_CODIGO_MINUTOS = 15;
+
+async function garantirTabelaCodigos() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS codigos_recuperacao (
+            id SERIAL PRIMARY KEY,
+            usuario_id INTEGER NOT NULL,
+            codigo VARCHAR(6) NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expira_em TIMESTAMP NOT NULL,
+            usado BOOLEAN DEFAULT FALSE,
+            ativo BOOLEAN DEFAULT TRUE
+        )
+    `);
+}
+
+// Acha o colaborador por e-mail OU por CPF. O CPF é comparado só pelos
+// dígitos, porque ele é digitado com e sem pontuação.
+async function acharUsuarioPorIdentificador(identificador) {
+    const bruto = String(identificador || '').trim();
+    if (!bruto) return null;
+    const digitos = bruto.replace(/\D/g, '');
+    const r = await pool.query(`
+        SELECT id, nome, email, cpf, cargo
+          FROM usuarios
+         WHERE LOWER(email) = LOWER($1)
+            OR ($2 <> '' AND regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = $2)
+         ORDER BY id
+         LIMIT 1
+    `, [bruto, digitos]);
+    return r.rows[0] || null;
+}
+
+// Mostra o e-mail sem entregá-lo: "jefferson.silva@lwn.com.br" vira
+// "je*************@lwn.com.br". Confirma para a pessoa certa qual caixa
+// olhar, sem revelar o endereço para quem só chutou um CPF.
+function mascararEmail(email) {
+    const e = String(email || '');
+    const i = e.indexOf('@');
+    if (i < 1) return '—';
+    const usuario = e.slice(0, i);
+    const dominio = e.slice(i);
+    const visivel = usuario.slice(0, Math.min(2, usuario.length));
+    return visivel + '*'.repeat(Math.max(3, usuario.length - visivel.length)) + dominio;
+}
+
+app.post("/api/senha/solicitar-codigo", async (req, res) => {
     try {
-        const { id } = req.params;
-        const { forcar_novo } = req.body;
-
-        const usuario = await pool.query("SELECT id, nome, cpf FROM usuarios WHERE id = $1", [id]);
-        if (usuario.rows.length === 0) {
-            return res.status(404).json({ erro: "Usuário não encontrado" });
+        await garantirTabelaCodigos();
+        const identificador = String((req.body || {}).identificador || '').trim();
+        if (!identificador) {
+            return res.status(400).json({ erro: "Informe o seu e-mail ou CPF." });
         }
 
-        const userId = usuario.rows[0].id;
-        const nome = usuario.rows[0].nome;
-        const cpf = usuario.rows[0].cpf || '';
+        const usuario = await acharUsuarioPorIdentificador(identificador);
 
-        // Tentar criar a tabela se não existir
-        try {
-            await pool.query(`
-                CREATE TABLE IF NOT EXISTS codigos_recuperacao (
-                    id SERIAL PRIMARY KEY,
-                    usuario_id INTEGER NOT NULL,
-                    codigo VARCHAR(6) NOT NULL,
-                    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expira_em TIMESTAMP NOT NULL,
-                    usado BOOLEAN DEFAULT FALSE,
-                    ativo BOOLEAN DEFAULT TRUE
-                )
-            `);
-        } catch (e) {
-            console.warn("AVISO: Erro ao criar tabela codigos_recuperacao:", e.message);
+        // Não existe: responde como se tivesse dado certo (ver o comentário do
+        // topo). Nenhum e-mail é enviado.
+        if (!usuario) {
+            return res.json({
+                sucesso: true,
+                enviado: true,
+                email_mascarado: null,
+                mensagem: "Se este cadastro existir, o código foi enviado para o e-mail cadastrado."
+            });
         }
 
-        // Verificar código ativo existente
-        let codigoAtivo = await pool.query(`
-            SELECT id, codigo, expira_em, criado_em
-            FROM codigos_recuperacao 
-            WHERE usuario_id = $1 
-            AND ativo = TRUE 
-            AND usado = FALSE
-            AND expira_em > NOW()
-            ORDER BY criado_em DESC 
-            LIMIT 1
-        `, [userId]);
-
-        let codigo, expiraEm, criadoEm;
-
-        if (codigoAtivo.rows.length === 0 || forcar_novo) {
-            // Desativar códigos antigos
-            await pool.query(
-                "UPDATE codigos_recuperacao SET ativo = FALSE WHERE usuario_id = $1 AND ativo = TRUE",
-                [userId]
-            );
-
-            // Gerar novo código
-            codigo = String(Math.floor(100000 + Math.random() * 900000));
-            
-            const result = await pool.query(`
-                INSERT INTO codigos_recuperacao (usuario_id, codigo, expira_em, ativo)
-                VALUES ($1, $2, NOW() + INTERVAL '1 minute', TRUE)
-                RETURNING codigo, expira_em, criado_em
-            `, [userId, codigo]);
-
-            codigo = result.rows[0].codigo;
-            expiraEm = result.rows[0].expira_em;
-            criadoEm = result.rows[0].criado_em;
-            
-            console.log("OK: NOVO código gerado para:", nome);
-        } else {
-            codigo = codigoAtivo.rows[0].codigo;
-            expiraEm = codigoAtivo.rows[0].expira_em;
-            criadoEm = codigoAtivo.rows[0].criado_em;
-            console.log("OK: Código EXISTENTE reutilizado para:", nome);
+        // Existe, mas sem e-mail: aí a pessoa precisa saber por que o código
+        // não vai chegar, e o que fazer.
+        if (!usuario.email || !String(usuario.email).includes('@')) {
+            return res.status(409).json({
+                erro: "Este cadastro não tem e-mail cadastrado, então não há para onde enviar o código. "
+                    + "Fale com o responsável para a inclusão do seu e-mail.",
+                sem_email: true
+            });
         }
 
-        const agora = new Date();
-        const expira = new Date(expiraEm);
-        const tempoRestante = Math.max(0, Math.floor((expira - agora) / 1000));
+        // Um código por vez: os anteriores morrem.
+        await pool.query(
+            "UPDATE codigos_recuperacao SET ativo = FALSE WHERE usuario_id = $1 AND ativo = TRUE",
+            [usuario.id]
+        );
+
+        const codigo = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+        await pool.query(`
+            INSERT INTO codigos_recuperacao (usuario_id, codigo, expira_em, ativo)
+            VALUES ($1, $2, NOW() + ($3 || ' minutes')::interval, TRUE)
+        `, [usuario.id, codigo, String(SENHA_CODIGO_MINUTOS)]);
+
+        const envio = await mail.enviarEmail({
+            para: usuario.email,
+            assunto: `LWN Control — seu código de recuperação: ${codigo}`,
+            html: `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.07);">
+        <tr><td style="background:#374995;padding:20px 24px;">
+          <div style="color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">LWN Control</div>
+          <div style="color:#ffffff;font-size:20px;font-weight:800;margin-top:4px;">Recuperação de senha</div>
+        </td></tr>
+        <tr><td style="padding:24px;">
+          <p style="margin:0 0 18px;font-size:14.5px;line-height:1.55;color:#374151;">
+            Olá, <strong>${String(usuario.nome || '').replace(/[<>&"]/g, '')}</strong>. Use o código abaixo para criar uma senha nova:
+          </p>
+          <div style="text-align:center;margin:0 0 18px;">
+            <div style="display:inline-block;background:#f3f4f6;border:1px solid #e6e9f0;border-radius:10px;padding:14px 26px;
+                        font-family:Consolas,monospace;font-size:32px;font-weight:800;letter-spacing:.22em;color:#1c2b63;">
+              ${codigo}
+            </div>
+          </div>
+          <p style="margin:0 0 6px;font-size:13px;line-height:1.55;color:#6b7280;">
+            O código vale por <strong>${SENHA_CODIGO_MINUTOS} minutos</strong> e só pode ser usado uma vez.
+          </p>
+          <p style="margin:0;font-size:13px;line-height:1.55;color:#6b7280;">
+            Se não foi você quem pediu, ignore este e-mail — a sua senha continua a mesma.
+          </p>
+        </td></tr>
+        <tr><td style="padding:14px 24px 22px;border-top:1px solid #eef0f4;">
+          <p style="margin:0;font-size:11.5px;line-height:1.5;color:#9ca3af;">
+            Aviso automático do LWN Control — não responda a este e-mail.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`
+        });
+
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'solicitar',
+            modulo: 'seguranca',
+            entidade: 'Recuperação de senha',
+            descricao: 'Pediu um código de recuperação de senha',
+            detalhes: {
+                contexto: {
+                    'Informou': identificador.includes('@') ? 'e-mail' : 'CPF',
+                    'Código enviado para': mascararEmail(usuario.email),
+                    'E-mail entregue ao servidor': envio.enviados ? 'Sim' : ('Não — ' + (envio.motivo || 'falha')),
+                    'Validade': SENHA_CODIGO_MINUTOS + ' minutos'
+                }
+            }
+        });
+
+        // O envio falhou (Outlook fora do ar ou sem configuração): dizer
+        // "enviado" aqui deixaria a pessoa esperando um e-mail que não vem.
+        if (!envio.enviados) {
+            return res.status(502).json({
+                erro: "Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos "
+                    + "ou fale com o responsável.",
+                detalhe: envio.motivo || null
+            });
+        }
 
         res.json({
             sucesso: true,
-            usuario: nome,
-            cpf: cpf,
-            codigo: codigo,
-            expira_em: expiraEm,
-            tempo_restante: tempoRestante,
-            criado_em: criadoEm,
-            reutilizado: codigoAtivo.rows.length > 0 && !forcar_novo,
-            mensagem: codigoAtivo.rows.length > 0 && !forcar_novo ? 
-                "Código existente ainda válido" : 
-                "Novo código gerado com sucesso!"
+            enviado: true,
+            email_mascarado: mascararEmail(usuario.email),
+            expira_em_minutos: SENHA_CODIGO_MINUTOS,
+            mensagem: "Código enviado para o e-mail cadastrado."
         });
-
     } catch (err) {
-        console.error("ERRO: ERRO:", err);
+        console.error("ERRO: POST /api/senha/solicitar-codigo:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
 
-app.post("/api/usuarios/validar-codigo", async (req, res) => {
-    console.log("Validando código...");
-    console.log("Body recebido:", req.body);
-    
+app.post("/api/senha/redefinir", async (req, res) => {
     try {
-        const { cpf, codigo, nova_senha } = req.body;
+        await garantirTabelaCodigos();
+        const b = req.body || {};
+        const identificador = String(b.identificador || '').trim();
+        const codigo = String(b.codigo || '').trim();
+        const novaSenha = String(b.nova_senha || '');
 
-        console.log(` CPF: ${cpf}`);
-        console.log(` Código: ${codigo}`);
-        console.log(` Nova senha: ${nova_senha}`);
-
-        if (!cpf || !codigo || !nova_senha) {
-            return res.status(400).json({ 
-                erro: "CPF, código e nova senha são obrigatórios" 
-            });
+        if (!identificador || !codigo || !novaSenha) {
+            return res.status(400).json({ erro: "Informe o e-mail/CPF, o código e a nova senha." });
+        }
+        if (novaSenha.length < 6) {
+            return res.status(400).json({ erro: "A nova senha deve ter pelo menos 6 caracteres." });
         }
 
-        if (nova_senha.length < 6) {
-            return res.status(400).json({ 
-                erro: "A nova senha deve ter pelo menos 6 caracteres" 
-            });
-        }
+        const usuario = await acharUsuarioPorIdentificador(identificador);
+        // Mensagem única para "não existe" e "código errado": separá-las diria
+        // a quem chuta se aquele cadastro existe.
+        const recusa = { erro: "Código inválido, expirado ou já utilizado." };
+        if (!usuario) return res.status(400).json(recusa);
 
-        const usuario = await pool.query(
-            "SELECT id, nome FROM usuarios WHERE cpf = $1",
-            [cpf]
-        );
-        
-        if (usuario.rows.length === 0) {
-            return res.status(404).json({ erro: "Usuário não encontrado com este CPF" });
-        }
+        const valido = await pool.query(`
+            SELECT id FROM codigos_recuperacao
+             WHERE usuario_id = $1 AND codigo = $2
+               AND ativo = TRUE AND usado = FALSE AND expira_em > NOW()
+             ORDER BY criado_em DESC LIMIT 1
+        `, [usuario.id, codigo]);
+        if (!valido.rows.length) return res.status(400).json(recusa);
 
-        const userId = usuario.rows[0].id;
-
-        const codigoValido = await pool.query(`
-            SELECT id, codigo, expira_em 
-            FROM codigos_recuperacao 
-            WHERE usuario_id = $1 
-            AND codigo = $2 
-            AND ativo = TRUE
-            AND usado = FALSE
-            AND expira_em > NOW()
-            ORDER BY criado_em DESC 
-            LIMIT 1
-        `, [userId, codigo]);
-
-        if (codigoValido.rows.length === 0) {
-            return res.status(400).json({ 
-                erro: "Código inválido, expirado ou já utilizado" 
-            });
-        }
-
-        // Hash da nova senha
-        if (!nova_senha || nova_senha.length === 0) {
-            return res.status(400).json({ erro: "Senha inválida" });
-        }
-        
-        const senhaHash = await bcryptjs.hash(nova_senha, 10);
-
-        await pool.query(
-            "UPDATE usuarios SET senha = $1 WHERE id = $2",
-            [senhaHash, userId]
-        );
-
+        const senhaHash = await bcryptjs.hash(novaSenha, 10);
+        await pool.query("UPDATE usuarios SET senha = $1 WHERE id = $2", [senhaHash, usuario.id]);
         await pool.query(
             "UPDATE codigos_recuperacao SET usado = TRUE, ativo = FALSE WHERE id = $1",
-            [codigoValido.rows[0].id]
+            [valido.rows[0].id]
         );
 
-        console.log(`OK: Senha redefinida com bcryptjs para: ${usuario.rows[0].nome}`);
+        // Trocar a senha derruba as sessões salvas: quem tinha o acesso antigo
+        // num aparelho perdido não continua entrando com ele.
+        try {
+            await pool.query("DELETE FROM sessoes_persistentes WHERE usuario_id = $1", [usuario.id]);
+        } catch (e) { /* a tabela pode ainda não existir */ }
 
-        res.json({
-            sucesso: true,
-            mensagem: "Senha redefinida com sucesso!",
-            usuario: usuario.rows[0].nome
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'editar',
+            modulo: 'seguranca',
+            entidade: 'Senha',
+            descricao: 'Redefiniu a própria senha com o código enviado por e-mail',
+            detalhes: {
+                contexto: {
+                    'Método': 'Código de 6 dígitos por e-mail',
+                    'Sessões salvas': 'encerradas',
+                    'Navegador': req.headers['user-agent'] || '—'
+                }
+            }
         });
 
+        res.json({ sucesso: true, usuario: usuario.nome, mensagem: "Senha redefinida com sucesso!" });
     } catch (err) {
-        console.error("ERRO: ERRO:", err);
+        console.error("ERRO: POST /api/senha/redefinir:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
+
 
 // ============================================================
 // ROTA POST - LOGIN
 // ============================================================
+// usuarios.permissoes existe em três formatos no banco, por idade do
+// cadastro: objeto ({"logs": true}), array (["logs"]) e o texto JSON de um
+// dos dois. Toda entrada no sistema passa por aqui — senha e reconhecimento
+// facial —, então a leitura precisa ser a mesma nos dois caminhos.
+function extrairPermissoes(valor) {
+    try {
+        if (!valor) return [];
+        let v = valor;
+        if (typeof v === 'string') {
+            try { v = JSON.parse(v); } catch (e) { return []; }
+        }
+        if (Array.isArray(v)) return v;
+        if (typeof v === 'object') {
+            // No formato objeto, a chave marcada como false é uma permissão
+            // RETIRADA — listá-la seria devolver o acesso que foi tirado.
+            return Object.keys(v).filter(k => v[k] !== false);
+        }
+        return [];
+    } catch (e) {
+        console.warn("AVISO: Erro ao parsear permissões:", e.message);
+        return [];
+    }
+}
+
 app.post("/api/login", async (req, res) => {
     console.log(" POST /api/login");
     console.log("Body:", req.body);
@@ -1213,9 +1321,10 @@ app.post("/api/login", async (req, res) => {
         const identificador = email.toLowerCase().trim();
 
         const result = await pool.query(
-            `SELECT id, nome, cpf, email, cargo, ativo, permissoes, senha 
-             FROM usuarios 
-             WHERE LOWER(email) = $1 OR cpf = $1`,
+            `SELECT id, nome, cpf, email, cargo, ativo, permissoes, senha,
+                    (to_jsonb(u) ->> 'foto') AS foto
+               FROM usuarios u
+              WHERE LOWER(u.email) = $1 OR u.cpf = $1`,
             [identificador]
         );
 
@@ -1241,31 +1350,7 @@ app.post("/api/login", async (req, res) => {
             return res.status(401).json({ erro: "Senha incorreta" });
         }
 
-        // Extrair permissões
-        let permissoes = [];
-        try {
-            if (usuario.permissoes) {
-                if (typeof usuario.permissoes === 'object' && !Array.isArray(usuario.permissoes)) {
-                    permissoes = Object.keys(usuario.permissoes);
-                } else if (Array.isArray(usuario.permissoes)) {
-                    permissoes = usuario.permissoes;
-                } else if (typeof usuario.permissoes === 'string') {
-                    try {
-                        const parsed = JSON.parse(usuario.permissoes);
-                        if (Array.isArray(parsed)) {
-                            permissoes = parsed;
-                        } else if (typeof parsed === 'object') {
-                            permissoes = Object.keys(parsed);
-                        }
-                    } catch (e) {
-                        permissoes = [];
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn("AVISO: Erro ao parsear permissões:", e);
-            permissoes = [];
-        }
+        let permissoes = extrairPermissoes(usuario.permissoes);
 
         // Se não tiver permissões, definir padrão baseado no cargo
         if (permissoes.length === 0) {
@@ -1302,6 +1387,26 @@ app.post("/api/login", async (req, res) => {
             token = await criarSessaoPersistente(usuario.id, req.headers['user-agent']);
         }
 
+        // Toda entrada no sistema fica registrada. O interceptador do
+        // navegador nunca pegaria esta: ele ignora /api/login de propósito
+        // (a requisição carrega a senha), então quem registra é o servidor.
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'login',
+            modulo: 'seguranca',
+            entidade: 'Acesso',
+            descricao: `Entrou com e-mail/CPF e senha`,
+            detalhes: {
+                contexto: {
+                    'Método': 'E-mail/CPF e senha',
+                    'Mantenha-me conectado': req.body?.manter_conectado ? 'Sim' : 'Não',
+                    'Navegador': req.headers['user-agent'] || '—'
+                }
+            }
+        });
+
         res.json({
             sucesso: true,
             usuario: {
@@ -1312,6 +1417,7 @@ app.post("/api/login", async (req, res) => {
                 cargo: usuario.cargo,
                 ativo: usuario.ativo,
                 permissoes: permissoes,
+                foto: usuario.foto || null,
                 senha_padrao: senhaPadrao
             },
             permissoes: permissoes,
@@ -1326,6 +1432,485 @@ app.post("/api/login", async (req, res) => {
             erro: "Erro ao fazer login",
             detalhe: err.message
         });
+    }
+});
+
+
+// ============================================================
+// ENTRADA POR RECONHECIMENTO FACIAL (Face ID / Windows Hello)
+//
+// Nada de foto trafega por aqui, e o servidor nunca vê o rosto de ninguém.
+// Quem faz o reconhecimento é o PRÓPRIO APARELHO — o Face ID do iPhone, o
+// Windows Hello, o leitor do Android —, exatamente como acontece quando ele
+// desbloqueia um app de banco. O padrão é o WebAuthn.
+//
+// Como funciona, em duas etapas:
+//
+//   CADASTRO   O aparelho gera um par de chaves preso ao rosto do dono e
+//              manda para cá SÓ A CHAVE PÚBLICA. Ela não serve para
+//              reconstruir nada: é só o que permite conferir assinaturas.
+//
+//   ENTRADA    O servidor manda um desafio aleatório. O aparelho pede o
+//              rosto, e só se ele bater é que assina o desafio com a chave
+//              privada — que nunca sai do aparelho. Aqui a assinatura é
+//              conferida contra a chave pública guardada.
+//
+// Por que assim, e não "tirar uma selfie e comparar": comparar imagem no
+// servidor significaria guardar biometria de colaborador num banco de dados,
+// e cairia com uma foto impressa. Deste jeito o segredo nunca sai do celular,
+// e um rosto errado nem chega a produzir assinatura.
+//
+// O desafio é gravado no banco com validade curta e some depois de usado, o
+// que impede alguém de repetir uma assinatura capturada antes (replay).
+// ============================================================
+let _facialTabelasOk = false;
+async function garantirTabelasFacial() {
+    if (_facialTabelasOk) return;
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS usuario_credenciais (
+            id             SERIAL PRIMARY KEY,
+            usuario_id     INTEGER NOT NULL,
+            credencial_id  TEXT NOT NULL UNIQUE,
+            chave_publica  TEXT NOT NULL,      -- SPKI em base64
+            contador       BIGINT DEFAULT 0,
+            apelido        VARCHAR(180),
+            user_agent     TEXT,
+            criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ultimo_uso     TIMESTAMP
+        )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_credenciais_usuario ON usuario_credenciais (usuario_id)`);
+
+    // Um desafio serve uma vez só e por pouco tempo.
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS webauthn_desafios (
+            id         SERIAL PRIMARY KEY,
+            desafio    TEXT NOT NULL UNIQUE,
+            usuario_id INTEGER,
+            finalidade VARCHAR(20) NOT NULL,   -- 'cadastro' | 'entrada'
+            criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_desafios_desafio ON webauthn_desafios (desafio)`);
+
+    _facialTabelasOk = true;
+}
+
+const FACIAL_DESAFIO_MINUTOS = 5;
+
+function b64url(buf) {
+    return Buffer.from(buf).toString('base64')
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function deB64url(txt) {
+    const s = String(txt || '').replace(/-/g, '+').replace(/_/g, '/');
+    return Buffer.from(s + '='.repeat((4 - s.length % 4) % 4), 'base64');
+}
+
+async function novoDesafio(finalidade, usuarioId) {
+    await garantirTabelasFacial();
+    // Um desafio velho nunca deve poder ser reaproveitado, então a limpeza
+    // acontece toda vez que um novo é criado — sem depender de rotina externa.
+    await pool.query(
+        `DELETE FROM webauthn_desafios WHERE criado_em < NOW() - INTERVAL '${FACIAL_DESAFIO_MINUTOS} minutes'`
+    );
+    const desafio = b64url(crypto.randomBytes(32));
+    await pool.query(
+        "INSERT INTO webauthn_desafios (desafio, usuario_id, finalidade) VALUES ($1,$2,$3)",
+        [desafio, usuarioId || null, finalidade]
+    );
+    return desafio;
+}
+
+// Consome o desafio: ele vale UMA vez. Devolve a linha se ainda era válido.
+async function consumirDesafio(desafio, finalidade) {
+    await garantirTabelasFacial();
+    const r = await pool.query(
+        `DELETE FROM webauthn_desafios
+          WHERE desafio = $1 AND finalidade = $2
+            AND criado_em >= NOW() - INTERVAL '${FACIAL_DESAFIO_MINUTOS} minutes'
+      RETURNING *`,
+        [String(desafio || ''), finalidade]
+    );
+    return r.rows[0] || null;
+}
+
+// O clientDataJSON diz o que o navegador realmente assinou. Conferir o desafio
+// e a origem aqui é o que impede uma assinatura obtida em outro site (ou numa
+// sessão antiga) de valer nesta.
+function conferirClientData(clientDataB64, desafioEsperado, tipoEsperado, origemPedido) {
+    let dados;
+    try {
+        dados = JSON.parse(deB64url(clientDataB64).toString('utf8'));
+    } catch (e) {
+        return { ok: false, erro: "Resposta do aparelho ilegível." };
+    }
+    if (dados.type !== tipoEsperado) {
+        return { ok: false, erro: "Tipo de operação inesperado." };
+    }
+    if (dados.challenge !== desafioEsperado) {
+        return { ok: false, erro: "Desafio inválido ou expirado. Tente novamente." };
+    }
+    // A origem precisa ser a do próprio site. Em desenvolvimento (localhost) a
+    // porta muda a toda hora, então ali basta ser localhost.
+    const origem = String(dados.origin || '');
+    const permitida = String(origemPedido || '');
+    const ehLocal = /^https?:\/\/localhost(:\d+)?$/.test(origem) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origem);
+    if (!ehLocal && permitida && origem !== permitida) {
+        return { ok: false, erro: "Origem não confere." };
+    }
+    return { ok: true, dados };
+}
+
+// O "rpId" é o domínio a que a credencial fica presa. Ele TEM de bater com o
+// domínio de onde a página foi servida, senão o navegador recusa antes mesmo
+// de pedir o rosto.
+function rpIdDoPedido(req) {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0];
+    return host || 'localhost';
+}
+
+function origemDoPedido(req) {
+    const proto = String(req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http')).split(',')[0];
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0];
+    return `${proto}://${host}`;
+}
+
+// ------------------------------------------------------------
+// GET /api/facial/cadastro/opcoes?usuario_id=1
+// O que o navegador precisa para pedir o rosto e gerar a chave.
+// ------------------------------------------------------------
+app.get("/api/facial/cadastro/opcoes", async (req, res) => {
+    try {
+        await garantirTabelasFacial();
+        const usuarioId = parseInt(req.query.usuario_id);
+        if (!Number.isInteger(usuarioId)) return res.status(400).json({ erro: "Usuário não informado." });
+
+        const u = await pool.query("SELECT id, nome, email, cpf FROM usuarios WHERE id = $1 AND ativo = TRUE", [usuarioId]);
+        if (!u.rows.length) return res.status(404).json({ erro: "Usuário não encontrado." });
+        const usuario = u.rows[0];
+
+        const jaTem = await pool.query(
+            "SELECT credencial_id FROM usuario_credenciais WHERE usuario_id = $1",
+            [usuarioId]
+        );
+
+        const desafio = await novoDesafio('cadastro', usuarioId);
+
+        res.json({
+            desafio,
+            rp: { id: rpIdDoPedido(req), name: "LWN Control" },
+            usuario: {
+                // O id do usuário para o WebAuthn é opaco: mandamos o id do
+                // banco em base64url, e não e-mail/CPF.
+                id: b64url(Buffer.from(String(usuario.id))),
+                name: usuario.email || usuario.cpf || String(usuario.id),
+                displayName: usuario.nome || 'Colaborador'
+            },
+            // Impede cadastrar duas vezes o mesmo aparelho para o mesmo usuário.
+            excluir: jaTem.rows.map(c => c.credencial_id)
+        });
+    } catch (err) {
+        console.error("ERRO: GET /api/facial/cadastro/opcoes:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// POST /api/facial/cadastro
+// body: { usuario_id, credencial_id, chave_publica, client_data, apelido }
+//
+// `chave_publica` vem do próprio navegador, já em SPKI
+// (response.getPublicKey()) — é o formato que o Node lê direto, o que evita
+// ter de decodificar CBOR/COSE aqui dentro.
+// ------------------------------------------------------------
+app.post("/api/facial/cadastro", async (req, res) => {
+    try {
+        await garantirTabelasFacial();
+        const b = req.body || {};
+        const usuarioId = parseInt(b.usuario_id);
+        if (!Number.isInteger(usuarioId)) return res.status(400).json({ erro: "Usuário não informado." });
+        if (!b.credencial_id || !b.chave_publica) {
+            return res.status(400).json({ erro: "O aparelho não devolveu a credencial." });
+        }
+
+        const u = await pool.query("SELECT id, nome, cargo FROM usuarios WHERE id = $1 AND ativo = TRUE", [usuarioId]);
+        if (!u.rows.length) return res.status(404).json({ erro: "Usuário não encontrado." });
+        const usuario = u.rows[0];
+
+        // O desafio precisa ser o que ESTE servidor emitiu, há pouco, para
+        // este usuário.
+        let clientData;
+        try {
+            clientData = JSON.parse(deB64url(b.client_data).toString('utf8'));
+        } catch (e) {
+            return res.status(400).json({ erro: "Resposta do aparelho ilegível." });
+        }
+        const linhaDesafio = await consumirDesafio(clientData.challenge, 'cadastro');
+        if (!linhaDesafio || String(linhaDesafio.usuario_id) !== String(usuarioId)) {
+            return res.status(400).json({ erro: "Desafio inválido ou expirado. Tente de novo." });
+        }
+        const conferencia = conferirClientData(b.client_data, clientData.challenge, 'webauthn.create', origemDoPedido(req));
+        if (!conferencia.ok) return res.status(400).json({ erro: conferencia.erro });
+
+        // A chave precisa ser legível pelo Node — se não for, é melhor
+        // recusar agora do que descobrir na hora de entrar.
+        try {
+            crypto.createPublicKey({ key: deB64url(b.chave_publica), format: 'der', type: 'spki' });
+        } catch (e) {
+            return res.status(400).json({ erro: "O aparelho enviou uma chave em formato não suportado." });
+        }
+
+        await pool.query(`
+            INSERT INTO usuario_credenciais (usuario_id, credencial_id, chave_publica, apelido, user_agent)
+            VALUES ($1,$2,$3,$4,$5)
+            ON CONFLICT (credencial_id) DO UPDATE
+               SET chave_publica = EXCLUDED.chave_publica,
+                   usuario_id    = EXCLUDED.usuario_id,
+                   apelido       = EXCLUDED.apelido
+        `, [
+            usuarioId,
+            String(b.credencial_id),
+            String(b.chave_publica),
+            b.apelido ? String(b.apelido).slice(0, 180) : 'Este aparelho',
+            req.headers['user-agent'] || null
+        ]);
+
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'criar',
+            modulo: 'seguranca',
+            entidade: 'Reconhecimento facial',
+            descricao: `Cadastrou o reconhecimento facial neste aparelho`,
+            detalhes: {
+                contexto: {
+                    'Aparelho': b.apelido || 'Este aparelho',
+                    'Navegador': req.headers['user-agent'] || '—'
+                }
+            }
+        });
+
+        res.status(201).json({ sucesso: true });
+    } catch (err) {
+        console.error("ERRO: POST /api/facial/cadastro:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// GET /api/facial/entrada/opcoes
+// O desafio da entrada. Nenhum usuário é informado: quem diz de quem é o
+// rosto é a credencial que o aparelho devolver.
+// ------------------------------------------------------------
+app.get("/api/facial/entrada/opcoes", async (req, res) => {
+    try {
+        const desafio = await novoDesafio('entrada', null);
+        res.json({ desafio, rpId: rpIdDoPedido(req) });
+    } catch (err) {
+        console.error("ERRO: GET /api/facial/entrada/opcoes:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// POST /api/facial/entrada
+// body: { credencial_id, client_data, authenticator_data, assinatura,
+//         manter_conectado }
+//
+// A conferência é a mesma que qualquer servidor WebAuthn faz: a assinatura
+// tem de bater sobre (authenticatorData ‖ SHA-256(clientDataJSON)) usando a
+// chave pública guardada no cadastro.
+// ------------------------------------------------------------
+app.post("/api/facial/entrada", async (req, res) => {
+    try {
+        await garantirTabelasFacial();
+        const b = req.body || {};
+        if (!b.credencial_id || !b.client_data || !b.authenticator_data || !b.assinatura) {
+            return res.status(400).json({ erro: "Resposta incompleta do aparelho." });
+        }
+
+        const cred = await pool.query(
+            "SELECT * FROM usuario_credenciais WHERE credencial_id = $1",
+            [String(b.credencial_id)]
+        );
+        if (!cred.rows.length) {
+            return res.status(401).json({ erro: "Este aparelho não tem reconhecimento facial cadastrado." });
+        }
+        const credencial = cred.rows[0];
+
+        let clientData;
+        try {
+            clientData = JSON.parse(deB64url(b.client_data).toString('utf8'));
+        } catch (e) {
+            return res.status(400).json({ erro: "Resposta do aparelho ilegível." });
+        }
+        const linhaDesafio = await consumirDesafio(clientData.challenge, 'entrada');
+        if (!linhaDesafio) {
+            return res.status(401).json({ erro: "Desafio inválido ou expirado. Tente novamente." });
+        }
+        const conferencia = conferirClientData(b.client_data, clientData.challenge, 'webauthn.get', origemDoPedido(req));
+        if (!conferencia.ok) return res.status(401).json({ erro: conferencia.erro });
+
+        const authData = deB64url(b.authenticator_data);
+        const hashClient = crypto.createHash('sha256').update(deB64url(b.client_data)).digest();
+        const assinado = Buffer.concat([authData, hashClient]);
+
+        let chave;
+        try {
+            chave = crypto.createPublicKey({ key: deB64url(credencial.chave_publica), format: 'der', type: 'spki' });
+        } catch (e) {
+            return res.status(500).json({ erro: "Credencial gravada em formato inválido. Cadastre o rosto de novo." });
+        }
+
+        // ES256 (curva P-256) devolve a assinatura em DER; RS256 é PKCS#1.
+        // `dsaEncoding: 'der'` cobre o primeiro e é ignorado no segundo.
+        const valida = crypto.verify(
+            'sha256',
+            assinado,
+            { key: chave, dsaEncoding: 'der' },
+            deB64url(b.assinatura)
+        );
+        if (!valida) {
+            return res.status(401).json({ erro: "Não foi possível confirmar o reconhecimento facial." });
+        }
+
+        // Bit 0 do byte de flags: "o usuário estava presente". Bit 2: "o
+        // usuário foi verificado" — é ele que diz que o rosto (ou a digital)
+        // foi de fato conferido, e não só um toque no aparelho.
+        const flags = authData[32];
+        if (!(flags & 0x01)) {
+            return res.status(401).json({ erro: "O aparelho não confirmou a presença do usuário." });
+        }
+        if (!(flags & 0x04)) {
+            return res.status(401).json({
+                erro: "O aparelho não confirmou o reconhecimento facial (só a presença). Use a senha."
+            });
+        }
+
+        // Contador anti-clonagem: um autenticador de verdade só avança. Vindo
+        // para trás, é sinal de credencial copiada — o acesso é recusado.
+        const contadorNovo = authData.readUInt32BE(33);
+        const contadorAtual = parseInt(credencial.contador) || 0;
+        if (contadorNovo !== 0 && contadorNovo <= contadorAtual) {
+            return res.status(401).json({ erro: "Credencial inconsistente. Cadastre o rosto novamente." });
+        }
+
+        const u = await pool.query(
+            `SELECT id, nome, cpf, email, cargo, ativo, permissoes, senha,
+                    (to_jsonb(x) ->> 'foto') AS foto
+               FROM usuarios x WHERE x.id = $1`,
+            [credencial.usuario_id]
+        );
+        if (!u.rows.length || !u.rows[0].ativo) {
+            return res.status(401).json({ erro: "Usuário inativo ou removido." });
+        }
+        const usuario = u.rows[0];
+
+        await pool.query(
+            "UPDATE usuario_credenciais SET contador = $1, ultimo_uso = CURRENT_TIMESTAMP WHERE id = $2",
+            [contadorNovo, credencial.id]
+        );
+
+        const permissoes = extrairPermissoes(usuario.permissoes);
+
+        let senhaPadrao = false;
+        try { senhaPadrao = await bcryptjs.compare(SENHA_PADRAO_CADASTRO, usuario.senha); } catch (e) { /* ignora */ }
+
+        let token = null;
+        if (b.manter_conectado) token = await criarSessaoPersistente(usuario.id, req.headers['user-agent']);
+
+        await registrarLogServidor({
+            usuario_id: usuario.id,
+            usuario_nome: usuario.nome,
+            usuario_cargo: usuario.cargo,
+            acao: 'login',
+            modulo: 'seguranca',
+            entidade: 'Acesso',
+            descricao: `Entrou por reconhecimento facial`,
+            detalhes: {
+                contexto: {
+                    'Método': 'Reconhecimento facial (Face ID / Windows Hello)',
+                    'Aparelho': credencial.apelido || '—',
+                    'Navegador': req.headers['user-agent'] || '—'
+                }
+            }
+        });
+
+        res.json({
+            sucesso: true,
+            usuario: {
+                id: usuario.id,
+                nome: usuario.nome,
+                email: usuario.email,
+                cpf: usuario.cpf,
+                cargo: usuario.cargo,
+                ativo: usuario.ativo,
+                permissoes,
+                foto: usuario.foto || null,
+                senha_padrao: senhaPadrao
+            },
+            permissoes,
+            senha_padrao: senhaPadrao,
+            token,
+            mensagem: "Reconhecimento facial confirmado"
+        });
+    } catch (err) {
+        console.error("ERRO: POST /api/facial/entrada:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// GET /api/facial/status?usuario_id=1  — o botão flutuante usa isto para
+// saber se mostra "Cadastrar" ou "Já cadastrado".
+// DELETE /api/facial/:id               — remover o rosto de um aparelho.
+// ------------------------------------------------------------
+app.get("/api/facial/status", async (req, res) => {
+    try {
+        await garantirTabelasFacial();
+        const usuarioId = parseInt(req.query.usuario_id);
+        if (!Number.isInteger(usuarioId)) return res.json({ cadastrado: false, credenciais: [] });
+        const r = await pool.query(
+            `SELECT id, apelido, criado_em, ultimo_uso FROM usuario_credenciais
+              WHERE usuario_id = $1 ORDER BY criado_em DESC`,
+            [usuarioId]
+        );
+        res.json({ cadastrado: r.rows.length > 0, credenciais: r.rows });
+    } catch (err) {
+        console.error("ERRO: GET /api/facial/status:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+app.delete("/api/facial/:id", async (req, res) => {
+    try {
+        await garantirTabelasFacial();
+        const r = await pool.query(
+            "DELETE FROM usuario_credenciais WHERE id = $1 RETURNING usuario_id, apelido",
+            [req.params.id]
+        );
+        if (!r.rows.length) return res.status(404).json({ erro: "Credencial não encontrada." });
+
+        const u = await pool.query("SELECT nome, cargo FROM usuarios WHERE id = $1", [r.rows[0].usuario_id]);
+        await registrarLogServidor({
+            usuario_id: r.rows[0].usuario_id,
+            usuario_nome: u.rows[0]?.nome,
+            usuario_cargo: u.rows[0]?.cargo,
+            acao: 'excluir',
+            modulo: 'seguranca',
+            entidade: 'Reconhecimento facial',
+            descricao: `Removeu o reconhecimento facial de um aparelho`,
+            detalhes: { contexto: { 'Aparelho': r.rows[0].apelido || '—' } }
+        });
+
+        res.json({ sucesso: true });
+    } catch (err) {
+        console.error("ERRO: DELETE /api/facial:", err.message);
+        res.status(500).json({ erro: err.message });
     }
 });
 
@@ -2649,6 +3234,28 @@ const OS_STATUS = {
     AGUARDANDO_CONFERENCIA: 'aguardando_conferencia'
 };
 
+// Como cada status se chama para uma pessoa. O front tem o seu
+// (getStatusInfo em almoxarife.js); o e-mail sai daqui e precisa do dele —
+// "aguardando_conferencia" num assunto de e-mail não diz nada a ninguém.
+const OS_STATUS_ROTULO = {
+    aguardando_aprovacao:   'Aguardando aprovação',
+    reprovada:              'Reprovada',
+    aprovada:               'Aprovada',
+    aguardando_conferencia: 'Aguardando separação',
+    separado:               'Separada — pronta para retirada',
+    conferido:              'Retirada concluída',
+    em_campo:               'Em campo',
+    prorrogada:             'Em campo (prazo prorrogado)',
+    concluida:              'Concluída',
+    cancelada:              'Cancelada',
+    descontinuada:          'Descontinuada'
+};
+
+function rotuloStatusOS(status) {
+    const s = String(status || '').toLowerCase().trim();
+    return OS_STATUS_ROTULO[s] || (s ? s.replace(/_/g, ' ') : '—');
+}
+
 // O responsável é gravado por nome (compatibilidade com o histórico) e por id.
 // Aqui resolvemos o id a partir do que o frontend mandar — id direto, ou o nome
 // exibido no select de responsáveis.
@@ -2762,6 +3369,20 @@ app.put("/api/solicitacoes/:id/aprovar", async (req, res) => {
             remetente: os.solicitado_por,
             permissao: 'conferencia',
             excluir: usuario?.id
+        });
+
+        // A aprovação é a primeira mudança de status da obra, e a que mais
+        // interessa a quem enviou a solicitação.
+        await mail.notificar(pool, 'status_obra', {
+            os: r.rows[0],
+            statusAnterior: os.status,
+            statusAnteriorRotulo: rotuloStatusOS(os.status),
+            statusNovo: r.rows[0].status,
+            statusNovoRotulo: rotuloStatusOS(r.rows[0].status),
+            usuario: usuario?.nome || null,
+            data: new Date(),
+            somenteIds: [os.solicitado_por_id, os.responsavel_id].filter(Boolean),
+            excluirId: usuario?.id
         });
 
         cache.invalidar("solicitacoes");
@@ -2992,6 +3613,36 @@ app.put("/api/solicitacoes/:id/reprovar", async (req, res) => {
 // ROTAS - SOLICITAÇÕES
 // ============================================================
 
+// ------------------------------------------------------------
+// NÚMERO DA OS — UM POR SOLICITAÇÃO, NUNCA DOIS IGUAIS
+//
+// Antes o número era calculado NO NAVEGADOR (MAX(numero_os)+1 sobre a lista
+// que aquela aba tinha em memória). Duas pessoas solicitando ao mesmo tempo
+// liam a mesma lista e chegavam ao mesmo número: Jefferson e Rodrigo às 10:45
+// saíam os dois como OS-519.
+//
+// Agora quem numera é o banco, dentro da MESMA transação que insere a linha,
+// e o pg_advisory_xact_lock serializa as chamadas concorrentes: a segunda
+// espera a primeira terminar e só então lê o MAX — 519 e 520. O lock cai
+// sozinho no COMMIT/ROLLBACK (é "xact"), então erro nenhum trava a numeração.
+//
+// A conta ignora o que não for dígito para valer tanto com numero_os INTEGER
+// quanto com bancos antigos em que a coluna é texto.
+// ------------------------------------------------------------
+const OS_NUMERO_LOCK = 918273645;   // chave fixa deste lock; qualquer inteiro serve
+
+async function proximoNumeroOS(client) {
+    await client.query("SELECT pg_advisory_xact_lock($1)", [OS_NUMERO_LOCK]);
+    const r = await client.query(`
+        SELECT COALESCE(
+                   MAX(NULLIF(regexp_replace(numero_os::text, '[^0-9]', '', 'g'), '')::bigint),
+                   0
+               ) + 1 AS proximo
+          FROM solicitacoes
+    `);
+    return parseInt(r.rows[0].proximo, 10) || 1;
+}
+
 app.post("/api/solicitacoes", async (req, res) => {
     console.log("POST /api/solicitacoes");
     console.log("Body recebido:", req.body);
@@ -3038,7 +3689,16 @@ app.post("/api/solicitacoes", async (req, res) => {
         // Só depois de aprovada ela entra na fila de conferência.
         const responsavelId = await resolverIdDoResponsavel(responsavel_id, responsavel);
 
-        const result = await pool.query(`
+        // O número é do SERVIDOR, não do navegador: quem manda `numero_os` no
+        // corpo tem o valor ignorado. Ele é gerado e gravado na mesma
+        // transação, com o lock que impede duas solicitações simultâneas de
+        // receberem o mesmo número (ver proximoNumeroOS).
+        const client = await pool.connect();
+        let result;
+        try {
+            await client.query("BEGIN");
+            const numeroGerado = await proximoNumeroOS(client);
+            result = await client.query(`
             INSERT INTO solicitacoes
             (numero_os, cliente, responsavel, obra, data_inicio, data_fim,
              instrumentos, quantidades, status, observacoes, baia_id, baias_ids, solicitado_por,
@@ -3046,7 +3706,7 @@ app.post("/api/solicitacoes", async (req, res) => {
             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12::jsonb, $13, $14, $15)
             RETURNING *
         `, [
-            numero_os || null,
+            numeroGerado,
             cliente,
             responsavel,
             obra || null,
@@ -3061,10 +3721,17 @@ app.post("/api/solicitacoes", async (req, res) => {
             solicitado_por || null,
             Number.isInteger(parseInt(solicitado_por_id)) ? parseInt(solicitado_por_id) : null,
             responsavelId
-        ]);
+            ]);
+            await client.query("COMMIT");
+        } catch (erroInsert) {
+            await client.query("ROLLBACK").catch(() => {});
+            throw erroInsert;
+        } finally {
+            client.release();
+        }
 
         const novaOS = result.rows[0];
-        console.log("OK: OS inserida no banco, ID:", novaOS.id);
+        console.log("OK: OS inserida no banco, ID:", novaOS.id, "· número:", novaOS.numero_os);
         console.log("OK: baia_id salvo:", novaOS.baia_id);
 
         if (listaBaias.length) {
@@ -3080,6 +3747,23 @@ app.post("/api/solicitacoes", async (req, res) => {
             usuarioIds: responsavelId ? [responsavelId] : [],
             permissao: 'aprovar_todas_os',
             excluir: solicitado_por_id
+        });
+
+        // O E-MAIL, ao contrário do push, vai SÓ para o responsável indicado
+        // na solicitação. Quem pode "aprovar qualquer OS" continua vendo a
+        // fila na tela e recebendo o push, mas não é inundado de e-mail por
+        // OS que não é dele — foi assim que a regra foi pedida.
+        await mail.notificar(pool, 'os_solicitada', {
+            os: novaOS,
+            solicitante: solicitado_por,
+            somenteIds: responsavelId ? [responsavelId] : [],
+            somenteNomes: responsavelId ? null : [responsavel],
+            excluirId: solicitado_por_id,
+            totalItens: Object.values(quantidades || {}).reduce((a, b) => a + (parseInt(b) || 0), 0),
+            itens: Object.keys(quantidades || {})
+                .filter(k => isNaN(Number(k)) && (parseInt(quantidades[k]) || 0) > 0)
+                .map(k => ({ ativo: k, quantidade: parseInt(quantidades[k]) })),
+            baias: listaBaias.length ? listaBaias.join(', ') : null
         });
 
         console.log("OK: Solicitação criada com sucesso!");
@@ -3446,6 +4130,37 @@ app.get("/api/certificados/instrumento/:instrumentoId", async (req, res) => {
     }
 });
 
+// Avisa quando o STATUS do certificado muda — e só então. O status não é uma
+// coluna: é a data de vencimento lida contra hoje (ver statusCertificado).
+// `vencimentoAnterior` null significa "certificado novo", que sempre avisa.
+async function avisarStatusCertificado(cert, usuario, vencimentoAnterior) {
+    try {
+        if (!cert) return;
+        const antes  = vencimentoAnterior === null ? null : statusCertificado(vencimentoAnterior);
+        const depois = statusCertificado(cert.data_vencimento);
+        if (antes !== null && antes === depois) return;
+
+        const f = await pool.query(
+            "SELECT tag, tipo FROM ferramentas WHERE id = $1",
+            [cert.instrumento_id]
+        );
+
+        await mail.notificar(pool, 'certificado', {
+            tag: f.rows[0]?.tag || null,
+            tipo: f.rows[0]?.tipo || null,
+            numero: cert.numero,
+            statusAnterior: antes || 'Sem certificado',
+            statusNovo: depois,
+            dataCalibracao: cert.data_emissao,
+            dataVencimento: cert.data_vencimento,
+            usuario: usuario || '—',
+            data: new Date()
+        });
+    } catch (e) {
+        console.warn("AVISO: falha ao avisar mudança de certificado:", e.message);
+    }
+}
+
 app.post("/api/certificados", async (req, res) => {
     console.log("POST /api/certificados");
     console.log("Body recebido:", req.body);
@@ -3504,6 +4219,11 @@ app.post("/api/certificados", async (req, res) => {
             comprovante || null
         ]);
 
+        // O certificado novo MUDA o status da ferramenta: o que estava
+        // vencido (ou a vencer) volta a ser vigente. Este é o gatilho real —
+        // esperar a verificação diária faria o aviso chegar um dia atrasado.
+        await avisarStatusCertificado(result.rows[0], req.body?.usuario_nome || null, null);
+
         console.log("OK: Certificado criado ID:", result.rows[0].id);
         res.status(201).json(result.rows[0]);
         
@@ -3534,12 +4254,13 @@ app.put("/api/certificados/:id", async (req, res) => {
         } = req.body;
 
         const existe = await pool.query(
-            "SELECT id FROM certificados WHERE id = $1",
+            "SELECT * FROM certificados WHERE id = $1",
             [id]
         );
         if (existe.rows.length === 0) {
             return res.status(404).json({ erro: "Certificado não encontrado" });
         }
+        const certAntes = existe.rows[0];
 
         // Construir query dinamicamente
         let updates = [];
@@ -3570,6 +4291,15 @@ app.put("/api/certificados/:id", async (req, res) => {
         `;
 
         const result = await pool.query(query, params);
+
+        // Só a data de vencimento muda o status de um certificado. Editar o
+        // número ou anexar o PDF não é mudança de status, e avisar por isso
+        // seria ruído — quem recebe deixaria de ler os avisos que importam.
+        await avisarStatusCertificado(
+            result.rows[0],
+            req.body?.usuario_nome || null,
+            certAntes.data_vencimento
+        );
 
         console.log("OK: Certificado atualizado ID:", id);
         res.json(result.rows[0]);
@@ -3782,8 +4512,47 @@ async function garantirTabelaLogs() {
     `);
     // Bancos criados antes desta versão podem não ter a coluna de detalhes
     await pool.query(`ALTER TABLE logs_atividade ADD COLUMN IF NOT EXISTS detalhes JSONB`);
+    // A foto do perfil vem da conta Microsoft (ver api/outlook.js). A coluna
+    // é garantida aqui porque o login por SENHA também a lê — e ele acontece
+    // muito antes de alguém entrar pelo Outlook pela primeira vez.
+    await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS foto TEXT`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_logs_criado_em ON logs_atividade (criado_em DESC)`);
     logsTabelaOk = true;
+}
+
+// ------------------------------------------------------------
+// LOG ESCRITO PELO PRÓPRIO SERVIDOR
+//
+// O interceptador de fetch do navegador (public/almoxarife/logs.js) cobre o
+// que passa pela tela, mas há coisa que nasce no servidor e nunca passaria
+// por ele: login (inclusive o por reconhecimento facial), decisões tomadas em
+// rotas próprias, avisos automáticos. Sem isto, essas ações simplesmente não
+// existiam na aba "Logs".
+//
+// Nunca lança: log é registro, não regra de negócio — falhar ao registrar não
+// pode derrubar a operação que estava sendo registrada.
+// ------------------------------------------------------------
+async function registrarLogServidor(dados) {
+    try {
+        await garantirTabelaLogs();
+        const d = dados || {};
+        await pool.query(`
+            INSERT INTO logs_atividade
+                (usuario_id, usuario_nome, usuario_cargo, acao, modulo, entidade, descricao, detalhes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `, [
+            Number.isInteger(parseInt(d.usuario_id)) ? parseInt(d.usuario_id) : null,
+            d.usuario_nome || 'Sistema',
+            d.usuario_cargo || null,
+            String(d.acao || 'acesso').slice(0, 80),
+            d.modulo || null,
+            d.entidade || null,
+            d.descricao || null,
+            d.detalhes ? JSON.stringify(d.detalhes) : null
+        ]);
+    } catch (err) {
+        console.warn("AVISO: não foi possível registrar o log:", err.message);
+    }
 }
 
 app.post("/api/logs", async (req, res) => {
@@ -3894,6 +4663,14 @@ function statusPorEstadoFerramenta(valor) {
 
 function estadoEhAvariaUtilizavel(valor) {
     return normalizarEstadoFerramenta(valor) === ESTADO_AVARIADO_UTILIZAVEL;
+}
+
+// Os DOIS estados de avaria contam como avaria para quem é avisado por
+// e-mail: a diferença entre elas é o destino da ferramenta, não o fato de
+// ela ter voltado danificada.
+function ehEstadoAvariado(valor) {
+    const v = normalizarEstadoFerramenta(valor);
+    return v === ESTADO_AVARIADO || v === ESTADO_AVARIADO_UTILIZAVEL;
 }
 
 // Grava (ou apaga) na ferramenta a avaria que não impede o uso.
@@ -4349,6 +5126,30 @@ async function garantirTabelaRemanejamentos() {
     await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS grupo_id VARCHAR(64)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_remanejamentos_grupo ON remanejamentos (grupo_id)`);
 
+    // ---- APROVAÇÃO DO REMANEJAMENTO ----
+    // O gestor saiu da ponta de cima do fluxo: quem começa o remanejamento é
+    // o técnico que está com a ferramenta na mão, em "Estou passando". O que
+    // ele monta não sai da obra na hora — vira um PEDIDO, que só vira uma
+    // passagem de verdade depois do aval de quem tem a permissão
+    // "aprovar_remanejamento". O caminho passa a ser:
+    //
+    //   aguardando_aprovacao -> pendente -> confirmado -> devolvido
+    //   (o técnico pediu)       (aprovado)  (recebeu)     (devolveu)
+    //                        \-> rejeitado (com motivo; a ferramenta fica onde está)
+    //
+    // A baixa na OS de origem acontece na APROVAÇÃO, não no pedido: enquanto
+    // ninguém aprovou, a ferramenta continua respondendo pela obra de origem.
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS aprovado_por     VARCHAR(180)`);
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS aprovado_por_id  INTEGER`);
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS aprovado_em      TIMESTAMP`);
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS rejeitado_por    VARCHAR(180)`);
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS rejeitado_em     TIMESTAMP`);
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS motivo_rejeicao  TEXT`);
+    // O recebimento agora é um termo de responsabilidade assinado na tela:
+    // quem recebe declara estar de acordo e pode anotar avarias na hora.
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS recebimento_obs    TEXT`);
+    await pool.query(`ALTER TABLE remanejamentos ADD COLUMN IF NOT EXISTS recebimento_ciente BOOLEAN DEFAULT FALSE`);
+
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_remanejamentos_tag ON remanejamentos (tag)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_remanejamentos_status ON remanejamentos (status)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_remanejamentos_destinatario ON remanejamentos (destinatario)`);
@@ -4733,6 +5534,11 @@ app.put("/api/remanejamentos/:id", async (req, res) => {
         // literal), e recusa a instrução inteira com
         // "inconsistent types deduced for parameter $1" (SQLSTATE 42P08).
         // Era esse o Erro 500 ao clicar em "Receber Instrumentos".
+        // Receber é assinar um termo: quem confirma declara estar de acordo
+        // ("recebimento_ciente") e, se a ferramenta chegou com avaria, anota
+        // aqui ("recebimento_obs"). O que não for anotado nesse momento passa
+        // a ser responsabilidade de quem recebeu — por isso os dois campos são
+        // gravados junto com a confirmação, e não num update solto depois.
         const r = await pool.query(`
             UPDATE remanejamentos
                SET status = $1::text,
@@ -4741,10 +5547,23 @@ app.put("/api/remanejamentos/:id", async (req, res) => {
                                         THEN CURRENT_TIMESTAMP ELSE confirmado_em END,
                    recebido_por  = CASE WHEN $1::text = 'confirmado'
                                         THEN COALESCE($4::text, recebido_por, destinatario)
-                                        ELSE recebido_por END
+                                        ELSE recebido_por END,
+                   recebimento_obs    = CASE WHEN $1::text = 'confirmado'
+                                             THEN COALESCE($5::text, recebimento_obs)
+                                             ELSE recebimento_obs END,
+                   recebimento_ciente = CASE WHEN $1::text = 'confirmado'
+                                             THEN COALESCE($6::boolean, recebimento_ciente)
+                                             ELSE recebimento_ciente END
              WHERE id = $3
          RETURNING *
-        `, [novoStatus, b.observacao || null, req.params.id, b.usuario ? String(b.usuario).trim() : null]);
+        `, [
+            novoStatus,
+            b.observacao || null,
+            req.params.id,
+            b.usuario ? String(b.usuario).trim() : null,
+            b.recebimento_obs ? String(b.recebimento_obs).trim() : null,
+            typeof b.recebimento_ciente === 'boolean' ? b.recebimento_ciente : null
+        ]);
 
         if (novoStatus === 'confirmado' && reg.destino) {
             await pool.query(
@@ -4918,6 +5737,371 @@ app.post("/api/remanejamentos/solicitar", async (req, res) => {
         res.status(201).json(criados);
     } catch (err) {
         console.error("ERRO: POST /api/remanejamentos/solicitar:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ============================================================
+// QUEM PODE APROVAR UM REMANEJAMENTO
+//
+// A permissão é a chave `aprovar_remanejamento` dentro de usuarios.permissoes.
+// Enquanto NINGUÉM a tiver marcada, vale a herança de transição: quem já
+// mandava no remanejamento (gerenciar_os / aprovar_todas_os) decide — senão a
+// fila subiria sem ninguém para aprová-la. Marcado o primeiro cargo, a herança
+// some e vale só o que está configurado. Mesma regra da prorrogação.
+// ============================================================
+// usuarios.permissoes existe em DUAS formas no banco: objeto
+// ({"logs": true}) nos cadastros novos e array (["logs"]) nos antigos. O
+// operador `?` do JSONB responde as duas ("chave existe / elemento existe"),
+// mas `->>` só faz sentido no objeto — num array ele não diz nada. Por isso a
+// checagem do valor `false` só vale quando o JSONB é mesmo um objeto.
+//
+// Uma constante em vez de repetir o trecho: é a mesma pergunta em todo lugar,
+// e errá-la num só ponto daria "ninguém tem essa permissão" em silêncio.
+const SQL_TEM_PERMISSAO = (param) => `
+    (permissoes ? ${param}
+     AND COALESCE(
+             CASE WHEN jsonb_typeof(permissoes) = 'object' THEN permissoes ->> ${param} END,
+             'true'
+         ) <> 'false')
+`;
+
+async function existeAlguemComPermissao(chave) {
+    const r = await pool.query(
+        `SELECT 1 FROM usuarios WHERE ativo = TRUE AND ${SQL_TEM_PERMISSAO('$1')} LIMIT 1`,
+        [chave]
+    );
+    return r.rows.length > 0;
+}
+
+async function usuariosQuePodemAprovarRemanejamento() {
+    const temAlguem = await existeAlguemComPermissao('aprovar_remanejamento');
+    const r = temAlguem
+        ? await pool.query(
+            `SELECT id, nome, email FROM usuarios
+              WHERE ativo = TRUE AND ${SQL_TEM_PERMISSAO('$1')}`,
+            ['aprovar_remanejamento']
+          )
+        : await pool.query(
+            `SELECT id, nome, email FROM usuarios
+              WHERE ativo = TRUE
+                AND (${SQL_TEM_PERMISSAO('$1')}
+                     OR ${SQL_TEM_PERMISSAO('$2')}
+                     OR ${SQL_TEM_PERMISSAO('$3')})`,
+            ['*', 'aprovar_todas_os', 'gerenciar_os']
+          );
+    return r.rows;
+}
+
+// ------------------------------------------------------------
+// POST /api/remanejamentos/passar
+//
+// O pedido nasce aqui: o técnico bipou as ferramentas que está passando,
+// escolheu para quem e para qual obra, e mandou. Nada sai da obra de origem
+// ainda — o movimento fica em 'aguardando_aprovacao' até alguém com a
+// permissão decidir.
+//
+// body: { itens:[{ferramenta_id,tag}], origem, destino, os_destino_id,
+//         destinatario, solicitado_por, solicitado_por_id, observacao }
+// ------------------------------------------------------------
+app.post("/api/remanejamentos/passar", async (req, res) => {
+    try {
+        await garantirTabelaRemanejamentos();
+        const b = req.body || {};
+        const origem = String(b.origem || '').trim();
+        const destinatario = String(b.destinatario || '').trim();
+        const solicitante = String(b.solicitado_por || '').trim();
+
+        if (!origem) return res.status(400).json({ erro: "A obra de origem é obrigatória." });
+        // Um dos dois destinos basta:
+        //   só destinatário -> a ferramenta fica com a pessoa e aparece na
+        //                      Localização no nome dela; ela devolve pela aba
+        //                      "Estou devolvendo"
+        //   só obra         -> entra na O.S. daquela obra e é exigida na
+        //                      devolutiva de lá
+        //   os dois         -> entra na O.S. e a pessoa assina o recebimento
+        if (!destinatario && !b.os_destino_id && !b.destino) {
+            return res.status(400).json({
+                erro: "Informe a obra de destino ou quem vai receber — um dos dois basta."
+            });
+        }
+
+        const itens = Array.isArray(b.itens) ? b.itens : [];
+        if (!itens.length) return res.status(400).json({ erro: "Bipe pelo menos uma ferramenta." });
+
+        const grupo = novoGrupoRemanejamento();
+        const criados = [];
+        for (const it of itens) {
+            const busca = it.ferramenta_id
+                ? await pool.query("SELECT id, tag, tipo, localizacao_atual FROM ferramentas WHERE id = $1", [it.ferramenta_id])
+                : await pool.query("SELECT id, tag, tipo, localizacao_atual FROM ferramentas WHERE UPPER(tag) = UPPER($1)", [String(it.tag || '').trim()]);
+            const ferramenta = busca.rows[0];
+            if (!ferramenta) continue;
+            criados.push(await registrarMovimento({
+                ferramenta_id: ferramenta.id,
+                tag: ferramenta.tag,
+                tipo: ferramenta.tipo,
+                origem,
+                destino: b.destino || null,
+                os_destino_id: b.os_destino_id || null,
+                motivo: b.destino
+                    ? `Remanejamento de ${origem} para ${b.destino}`
+                    : `Remanejamento saindo de ${origem}`,
+                observacao: b.observacao || null,
+                responsavel: solicitante || null,   // quem está passando
+                destinatario,
+                solicitado_por: solicitante || null,
+                status: 'aguardando_aprovacao',
+                origem_evento: 'remanejamento',
+                grupo_id: grupo
+            }));
+        }
+        if (!criados.length) return res.status(400).json({ erro: "Nenhuma ferramenta válida informada." });
+
+        // Quem aprova precisa saber que há pedido na fila.
+        try {
+            const alvos = await usuariosQuePodemAprovarRemanejamento();
+            const tags = Array.from(new Set(criados.map(m => m.tag))).join(', ');
+            await push.notificar(pool, 'remanejamento', {
+                os: null,
+                usuarioIds: alvos.map(u => u.id),
+                detalhe: `Remanejamento aguardando aprovação: ${tags} — de ${origem} para ${b.destino || '—'}, por ${solicitante || '—'}`
+            });
+        } catch (e) {
+            console.warn("AVISO: notificação do pedido de remanejamento ignorada:", e.message);
+        }
+
+        // O e-mail vai para TODOS que podem aprovar remanejamento — foi assim
+        // que a regra foi pedida, e é o que evita um pedido ficar parado
+        // esperando uma pessoa específica abrir o sistema.
+        await mail.notificar(pool, 'remanejamento', {
+            origem,
+            destino: b.destino || null,
+            destinatario,
+            solicitante,
+            instrumentos: criados.map(m => ({ tag: m.tag, tipo: m.tipo })),
+            observacao: b.observacao || null,
+            criado_em: new Date(),
+            excluirId: b.solicitado_por_id
+        });
+
+        await registrarLogServidor({
+            usuario_nome: solicitante,
+            usuario_id: b.solicitado_por_id,
+            acao: 'solicitar',
+            modulo: 'remanejamento',
+            entidade: 'Remanejamento',
+            descricao: `Remanejamento solicitado — ${criados.length} ferramenta(s) de ${origem} para ${b.destino || '—'}`,
+            detalhes: {
+                contexto: {
+                    'Origem': origem,
+                    'Destino': b.destino || '—',
+                    'Quem recebe': destinatario,
+                    'Ferramentas': criados.map(m => m.tag).join(', '),
+                    'Observação': b.observacao || '—'
+                }
+            }
+        });
+
+        cache.invalidar("ferramentas");
+        res.status(201).json(criados);
+    } catch (err) {
+        console.error("ERRO: POST /api/remanejamentos/passar:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// GET /api/remanejamentos/aprovacoes
+// A fila de quem aprova. Devolve as linhas cruas; o agrupamento por remessa
+// (grupo_id) é da tela, como no resto do módulo.
+// ------------------------------------------------------------
+app.get("/api/remanejamentos/aprovacoes", async (req, res) => {
+    try {
+        await garantirTabelaRemanejamentos();
+        const r = await pool.query(`
+            SELECT * FROM remanejamentos
+             WHERE status = 'aguardando_aprovacao' AND origem_evento = 'remanejamento'
+             ORDER BY criado_em DESC, id DESC
+             LIMIT 300
+        `);
+        res.json(r.rows);
+    } catch (err) {
+        console.error("ERRO: GET /api/remanejamentos/aprovacoes:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// POST /api/remanejamentos/aprovar { ids | grupo_id, usuario:{id,nome} }
+//
+// É AQUI que a ferramenta sai da obra de origem. Enquanto o pedido estava na
+// fila, ela continuava respondendo pela OS de lá; aprovado, a baixa acontece
+// e o movimento passa a esperar o recebimento ('pendente').
+// ------------------------------------------------------------
+app.post("/api/remanejamentos/aprovar", async (req, res) => {
+    try {
+        await garantirTabelaRemanejamentos();
+        const b = req.body || {};
+        const ids = (Array.isArray(b.ids) ? b.ids : []).map(v => parseInt(v)).filter(Number.isInteger);
+        const grupo = String(b.grupo_id || '').trim();
+        if (!ids.length && !grupo) return res.status(400).json({ erro: "Informe o remanejamento a aprovar." });
+
+        const quem = b.usuario || {};
+        const nomeQuem = String(quem.nome || '').trim() || null;
+
+        // A permissão é conferida no servidor, sempre: a tela nunca é a única
+        // barreira (mesma regra da prorrogação).
+        if (quem.id) {
+            const permitidos = await usuariosQuePodemAprovarRemanejamento();
+            if (!permitidos.some(u => String(u.id) === String(quem.id))) {
+                return res.status(403).json({ erro: "Você não tem permissão para aprovar remanejamentos." });
+            }
+        }
+
+        const filtro = grupo ? "grupo_id = $1" : "id = ANY($1::int[])";
+        const valor  = grupo ? grupo : ids;
+
+        const r = await pool.query(`
+            UPDATE remanejamentos
+               SET status = 'pendente',
+                   aprovado_por    = $2,
+                   aprovado_por_id = $3,
+                   aprovado_em     = CURRENT_TIMESTAMP,
+                   enviado_por     = COALESCE(enviado_por, responsavel),
+                   enviado_em      = COALESCE(enviado_em, CURRENT_TIMESTAMP)
+             WHERE ${filtro} AND status = 'aguardando_aprovacao'
+         RETURNING *
+        `, [valor, nomeQuem, Number.isInteger(parseInt(quem.id)) ? parseInt(quem.id) : null]);
+
+        if (!r.rows.length) {
+            return res.status(409).json({ erro: "Este remanejamento já foi decidido ou não existe mais." });
+        }
+
+        // A ferramenta sai da obra AGORA: é a baixa que tira a TAG da
+        // devolutiva da obra de origem.
+        for (const mov of r.rows) {
+            await registrarSaidaPorRemanejamento(mov, mov.responsavel || nomeQuem || null);
+        }
+
+        // Quem recebe entra na fila do "Estou recebendo".
+        try {
+            const nomes = Array.from(new Set(r.rows.map(m => String(m.destinatario || '').trim()).filter(Boolean)));
+            if (nomes.length) {
+                const alvos = await pool.query(
+                    "SELECT id FROM usuarios WHERE ativo = TRUE AND LOWER(nome) = ANY($1::text[])",
+                    [nomes.map(n => n.toLowerCase())]
+                );
+                const tags = Array.from(new Set(r.rows.map(m => m.tag))).join(', ');
+                await push.notificar(pool, 'remanejamento', {
+                    os: null,
+                    usuarioIds: alvos.rows.map(u => u.id),
+                    detalhe: `${tags} — liberado por ${nomeQuem || '—'}. Confirme o recebimento.`
+                });
+            }
+        } catch (e) {
+            console.warn("AVISO: notificação da aprovação de remanejamento ignorada:", e.message);
+        }
+
+        await registrarLogServidor({
+            usuario_nome: nomeQuem,
+            usuario_id: quem.id,
+            acao: 'aprovar',
+            modulo: 'remanejamento',
+            entidade: 'Remanejamento',
+            descricao: `Remanejamento aprovado — ${r.rows.length} ferramenta(s)`,
+            detalhes: {
+                contexto: {
+                    'Origem': r.rows[0].origem || '—',
+                    'Destino': r.rows[0].destino || '—',
+                    'Quem passou': r.rows[0].responsavel || '—',
+                    'Quem recebe': r.rows[0].destinatario || '—',
+                    'Ferramentas': r.rows.map(m => m.tag).join(', ')
+                }
+            }
+        });
+
+        cache.invalidar("solicitacoes", "ferramentas");
+        res.json(r.rows);
+    } catch (err) {
+        console.error("ERRO: POST /api/remanejamentos/aprovar:", err.message);
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// ------------------------------------------------------------
+// POST /api/remanejamentos/rejeitar { ids | grupo_id, usuario, motivo }
+// Recusado, nada se move: a ferramenta continua na obra de origem e o pedido
+// fica no histórico com o motivo.
+// ------------------------------------------------------------
+app.post("/api/remanejamentos/rejeitar", async (req, res) => {
+    try {
+        await garantirTabelaRemanejamentos();
+        const b = req.body || {};
+        const ids = (Array.isArray(b.ids) ? b.ids : []).map(v => parseInt(v)).filter(Number.isInteger);
+        const grupo = String(b.grupo_id || '').trim();
+        const motivo = String(b.motivo || '').trim();
+        if (!ids.length && !grupo) return res.status(400).json({ erro: "Informe o remanejamento a rejeitar." });
+        if (motivo.length < 3) return res.status(400).json({ erro: "O motivo da rejeição é obrigatório." });
+
+        const quem = b.usuario || {};
+        const nomeQuem = String(quem.nome || '').trim() || null;
+
+        if (quem.id) {
+            const permitidos = await usuariosQuePodemAprovarRemanejamento();
+            if (!permitidos.some(u => String(u.id) === String(quem.id))) {
+                return res.status(403).json({ erro: "Você não tem permissão para decidir remanejamentos." });
+            }
+        }
+
+        const filtro = grupo ? "grupo_id = $1" : "id = ANY($1::int[])";
+        const valor  = grupo ? grupo : ids;
+
+        const r = await pool.query(`
+            UPDATE remanejamentos
+               SET status = 'rejeitado',
+                   rejeitado_por   = $2,
+                   rejeitado_em    = CURRENT_TIMESTAMP,
+                   motivo_rejeicao = $3
+             WHERE ${filtro} AND status = 'aguardando_aprovacao'
+         RETURNING *
+        `, [valor, nomeQuem, motivo]);
+
+        if (!r.rows.length) {
+            return res.status(409).json({ erro: "Este remanejamento já foi decidido ou não existe mais." });
+        }
+
+        try {
+            const nomes = Array.from(new Set(r.rows.map(m => String(m.responsavel || '').trim()).filter(Boolean)));
+            if (nomes.length) {
+                const alvos = await pool.query(
+                    "SELECT id FROM usuarios WHERE ativo = TRUE AND LOWER(nome) = ANY($1::text[])",
+                    [nomes.map(n => n.toLowerCase())]
+                );
+                const tags = Array.from(new Set(r.rows.map(m => m.tag))).join(', ');
+                await push.notificar(pool, 'remanejamento', {
+                    os: null,
+                    usuarioIds: alvos.rows.map(u => u.id),
+                    detalhe: `Remanejamento recusado (${tags}) por ${nomeQuem || '—'}: ${motivo}`
+                });
+            }
+        } catch (e) {
+            console.warn("AVISO: notificação da rejeição de remanejamento ignorada:", e.message);
+        }
+
+        await registrarLogServidor({
+            usuario_nome: nomeQuem,
+            usuario_id: quem.id,
+            acao: 'reprovar',
+            modulo: 'remanejamento',
+            entidade: 'Remanejamento',
+            descricao: `Remanejamento rejeitado — ${r.rows.length} ferramenta(s)`,
+            detalhes: { contexto: { 'Motivo': motivo, 'Ferramentas': r.rows.map(m => m.tag).join(', ') } }
+        });
+
+        res.json(r.rows);
+    } catch (err) {
+        console.error("ERRO: POST /api/remanejamentos/rejeitar:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
@@ -5593,6 +6777,165 @@ app.post("/api/conferencia/validar-baia", async (req, res) => {
     }
 });
 
+// ============================================================
+// POST /api/separacao/validar { os_id, codigo, ja_bipadas: [tag,...] }
+//
+// A tela "Separar TAGS" não tem mais selects: quem separa BIPA, e é este
+// endpoint que decide se aquela TAG entra na OS. Ele responde três coisas
+// diferentes, e a tela trata cada uma de um jeito:
+//
+//   200 { valido:true }              -> a TAG entra; a tela a marca como escolhida
+//   409 { motivo:'em_outra_obra' }   -> está com outra OS; a tela oferece o
+//                                       link para a aba de Remanejamento
+//   409 { motivo:'indisponivel' | 'tipo_nao_pedido' | 'cota_cheia' | 'repetida' }
+//
+// A regra de "cabe nesta OS" é a mesma que os selects usavam: a OS pede N
+// unidades de cada ATIVO (quantidades), então a TAG bipada precisa ser de um
+// ativo pedido e ainda haver vaga naquele ativo.
+// ============================================================
+app.post("/api/separacao/validar", async (req, res) => {
+    try {
+        const { os_id, codigo } = req.body || {};
+        const jaBipadas = (Array.isArray(req.body?.ja_bipadas) ? req.body.ja_bipadas : [])
+            .map(t => String(t || '').toUpperCase()).filter(Boolean);
+
+        if (!codigo) return res.status(400).json({ valido: false, erro: "Informe o código bipado" });
+        if (!os_id)  return res.status(400).json({ valido: false, erro: "OS não informada" });
+
+        const ferramenta = await _buscarFerramentaPorCodigo(codigo);
+        if (!ferramenta) {
+            return res.status(404).json({
+                valido: false, motivo: 'nao_encontrada',
+                erro: `O código "${String(codigo).trim()}" não existe no Inventário.`
+            });
+        }
+
+        const osRes = await pool.query("SELECT * FROM solicitacoes WHERE id = $1", [os_id]);
+        if (!osRes.rows.length) return res.status(404).json({ valido: false, erro: "OS não encontrada" });
+        const os = osRes.rows[0];
+
+        const tagUp = String(ferramenta.tag || '').toUpperCase();
+
+        // Baia não é ferramenta da OS: ela tem caminho próprio (validar-baia).
+        if (ehTipoBaia(ferramenta.tipo)) {
+            return res.status(409).json({
+                valido: false, motivo: 'e_baia', ferramenta,
+                erro: `${ferramenta.tag} é uma baia, não um instrumento.`
+            });
+        }
+
+        if (jaBipadas.includes(tagUp)) {
+            return res.status(409).json({
+                valido: false, motivo: 'repetida', ferramenta,
+                erro: `${ferramenta.tag} já foi bipada nesta separação.`
+            });
+        }
+
+        // ---- ESTÁ DISPONÍVEL? ----
+        // Primeiro a pergunta mais útil para quem está no balcão: esta TAG está
+        // presa a OUTRA OS? Se estiver, a resposta traz a obra para a tela poder
+        // dizer "faça o remanejamento" com o link.
+        const emOutra = await pool.query(`
+            SELECT id, numero_os, obra, cliente, status
+              FROM solicitacoes
+             WHERE id <> $1
+               AND LOWER(COALESCE(status,'')) NOT IN ('concluida','concluido','concluída','cancelada','cancelado','descontinuada','reprovada')
+               AND (instrumentos::text ILIKE '%"' || $2 || '"%'
+                    OR instrumentos::text ILIKE '%' || $3 || '%')
+             ORDER BY id DESC
+             LIMIT 1
+        `, [os.id, String(ferramenta.id), ferramenta.tag || 'SEM-TAG-IMPOSSIVEL']);
+
+        if (emOutra.rows.length) {
+            const outra = emOutra.rows[0];
+            return res.status(409).json({
+                valido: false, motivo: 'em_outra_obra', ferramenta,
+                os_conflito: {
+                    id: outra.id,
+                    numero_os: outra.numero_os,
+                    obra: outra.obra || outra.cliente || null,
+                    status: outra.status
+                },
+                erro: `${ferramenta.tag} está na OS #OS-${String(outra.numero_os || outra.id).padStart(4, '0')}`
+                    + `${(outra.obra || outra.cliente) ? ' — ' + (outra.obra || outra.cliente) : ''}.`
+            });
+        }
+
+        // Fora isso, vale o status do Inventário. 'em_campo' sem OS encontrada
+        // acima também é bloqueio: a ferramenta não está no almoxarifado.
+        const statusFerr = String(ferramenta.status || '').toLowerCase().trim();
+        const ROTULO_STATUS = {
+            em_campo: 'está em campo',
+            em_manutencao: 'está em manutenção',
+            manutencao: 'está em manutenção',
+            em_calibracao: 'está em calibração',
+            calibracao: 'está em calibração',
+            avariado: 'está avariada',
+            inativo: 'está inativa',
+            inativa: 'está inativa'
+        };
+        if (statusFerr && statusFerr !== 'disponivel' && statusFerr !== 'avariado_utilizavel') {
+            return res.status(409).json({
+                valido: false, motivo: 'indisponivel', ferramenta,
+                erro: `${ferramenta.tag} não está disponível — ${ROTULO_STATUS[statusFerr] || `está como "${statusFerr}"`}.`
+            });
+        }
+
+        // ---- CABE NESTA OS? ----
+        let quantidades = os.quantidades;
+        if (typeof quantidades === 'string') { try { quantidades = JSON.parse(quantidades); } catch (e) { quantidades = {}; } }
+        if (!quantidades || typeof quantidades !== 'object' || Array.isArray(quantidades)) quantidades = {};
+
+        const pedidos = {};
+        Object.keys(quantidades).forEach(chave => {
+            const qtd = parseInt(quantidades[chave]) || 0;
+            if (qtd > 0 && isNaN(Number(chave))) pedidos[String(chave).toUpperCase()] = qtd;
+        });
+
+        const tipoUp = String(ferramenta.tipo || '').toUpperCase();
+
+        // OS sem lista de ativos (registro antigo): aceita qualquer TAG livre.
+        if (Object.keys(pedidos).length) {
+            if (!(tipoUp in pedidos)) {
+                return res.status(409).json({
+                    valido: false, motivo: 'tipo_nao_pedido', ferramenta,
+                    erro: `Esta OS não pediu "${ferramenta.tipo || 'este ativo'}" — ${ferramenta.tag} não entra nela.`
+                });
+            }
+
+            // Quantas TAGs deste mesmo ativo já foram bipadas nesta separação?
+            let usadas = 0;
+            if (jaBipadas.length) {
+                const r = await pool.query(
+                    "SELECT tipo FROM ferramentas WHERE UPPER(tag) = ANY($1::text[])",
+                    [jaBipadas]
+                );
+                usadas = r.rows.filter(f => String(f.tipo || '').toUpperCase() === tipoUp).length;
+            }
+            if (usadas >= pedidos[tipoUp]) {
+                return res.status(409).json({
+                    valido: false, motivo: 'cota_cheia', ferramenta,
+                    erro: `As ${pedidos[tipoUp]} unidade(s) de "${ferramenta.tipo}" desta OS já foram bipadas.`
+                });
+            }
+        }
+
+        res.json({
+            valido: true,
+            ferramenta: {
+                id: ferramenta.id,
+                tag: ferramenta.tag,
+                tipo: ferramenta.tipo,
+                numero_serie: ferramenta.numero_serie,
+                codigo_barras: ferramenta.codigo_barras
+            }
+        });
+    } catch (err) {
+        console.error("ERRO: POST /api/separacao/validar:", err.message);
+        res.status(500).json({ valido: false, erro: err.message });
+    }
+});
+
 // PUT /api/solicitacoes/:id/separar { responsavel }
 // Transição Aguardando separação -> Separado, com responsável/data próprios
 // (não sobrescreve conferido_por/em nem devolvido_por/em). Idempotente: se a
@@ -5658,6 +7001,16 @@ app.put("/api/solicitacoes/:id/separar", async (req, res) => {
             os: r.rows[0],
             remetente: os.solicitado_por,
             permissao: 'separar_tags'
+        });
+
+        // "Item já disponível para retirada": é exatamente este o momento —
+        // as TAGs foram separadas e bipadas, a OS mudou para "Separado".
+        await mail.notificar(pool, 'retirada', {
+            os: r.rows[0],
+            instrumentos: bipagem.map(b => ({ tag: b.tag, tipo: b.tipo })),
+            separadoPor: responsavel || null,
+            separadoEm: new Date(),
+            baia: bipagem.find(b => b.baia)?.baia || null
         });
 
         cache.invalidar("solicitacoes");
@@ -6169,6 +7522,38 @@ app.put("/api/solicitacoes/:id/devolutiva", async (req, res) => {
                 data_evento: hoje,
                 usuario: responsavel || null,
                 dados: { data_fim_original: fimContratado, data_fim_antecipada: hoje }
+            });
+        }
+
+        // AVARIA: cada ferramenta que voltou danificada vira um aviso próprio
+        // para quem tem a permissão de receber e-mail de avaria. Um e-mail por
+        // TAG, de propósito — juntar tudo num só esconderia o que aconteceu com
+        // cada uma, e é justamente esse detalhe que interessa à Manutenção.
+        for (const d of devolvidos) {
+            if (!ehEstadoAvariado(d.condicao)) continue;
+            await mail.notificar(pool, 'avaria', {
+                os: r.rows[0],
+                tag: d.tag,
+                tipo: d.tipo,
+                estado: d.condicao,
+                observacao: d.observacao,
+                devolvidoPor: responsavel || null,
+                data: new Date()
+            });
+        }
+
+        // STATUS DA OBRA: concluída é a mudança de status que mais interessa,
+        // e é a única que acontece nesta rota.
+        if (todosDevolvidos) {
+            await mail.notificar(pool, 'status_obra', {
+                os: r.rows[0],
+                statusAnterior: os.status,
+                statusAnteriorRotulo: rotuloStatusOS(os.status),
+                statusNovo: r.rows[0].status,
+                statusNovoRotulo: rotuloStatusOS(r.rows[0].status),
+                usuario: responsavel || null,
+                motivo: antecipada ? (motivo_antecipacao || 'Devolução antecipada') : null,
+                data: new Date()
             });
         }
 
@@ -7401,12 +8786,243 @@ if (!process.env.VERCEL) {
 // ============================================================
 push.montarRotas(app, pool);
 
+// A entrada com conta Outlook precisa de três coisas que vivem aqui: gravar
+// o log, ler as permissões do usuário e criar a sessão do "Mantenha-me
+// conectado". Passar as funções evita o módulo ter de importar o server.
+outlook.montarRotas(app, pool, {
+    registrarLog: registrarLogServidor,
+    extrairPermissoes,
+    criarSessao: criarSessaoPersistente
+});
+
+// ------------------------------------------------------------
+// GET /api/email/estado — diagnóstico do e-mail.
+// Responde "por que não chega e-mail" sem precisar abrir o servidor.
+// ------------------------------------------------------------
+app.get("/api/email/estado", async (req, res) => {
+    const saida = {
+        configurado: mail.configurado(),
+        faltando: mail.faltando(),
+        remetente: process.env.OUTLOOK_REMETENTE || null,
+        app_url: process.env.APP_URL || null,
+        tipos: Object.keys(mail.NOTIFICACOES)
+    };
+    // Um token só é pedido quando há configuração: sem ela a chamada falharia
+    // por um motivo já conhecido (e a lista `faltando` já disse qual).
+    if (saida.configurado) {
+        try {
+            await mail.obterToken();
+            saida.azure = "ok";
+        } catch (e) {
+            saida.azure = "erro: " + e.message;
+        }
+    }
+    res.json(saida);
+});
+
+// ------------------------------------------------------------
+// POST /api/email/testar { tipo, para }
+// Manda um e-mail de teste para um endereço, sem depender de nenhuma
+// permissão de notificação — serve para provar que o canal funciona.
+// ------------------------------------------------------------
+app.post("/api/email/testar", async (req, res) => {
+    try {
+        const para = String((req.body || {}).para || "").trim();
+        if (!para) return res.status(400).json({ erro: "Informe o e-mail de destino." });
+        const r = await mail.enviarEmail({
+            para,
+            assunto: "LWN Control — teste de notificação por e-mail",
+            html: `<!DOCTYPE html><html><body style="font-family:Segoe UI,Arial,sans-serif;padding:24px;">
+                     <h2 style="color:#374995;margin:0 0 10px;">Tudo certo</h2>
+                     <p style="color:#374151;font-size:14px;">O envio de e-mail do LWN Control está funcionando.</p>
+                     <p style="color:#9ca3af;font-size:12px;">Enviado em ${new Date().toLocaleString("pt-BR")}.</p>
+                   </body></html>`
+        });
+        res.json(r);
+    } catch (err) {
+        res.status(500).json({ erro: err.message });
+    }
+});
+
 // ============================================================
 // ROTA DE TESTE
 // ============================================================
 app.get("/api/teste", (req, res) => {
     res.json({ mensagem: "API funcionando!", hora: new Date().toISOString() });
 });
+
+// ============================================================
+// AVISOS QUE DEPENDEM DA DATA, NÃO DE UM CLIQUE
+//
+// Dois dos avisos pedidos não têm um "alguém fez alguma coisa" para servir de
+// gatilho — eles acontecem porque o CALENDÁRIO andou:
+//
+//   • último dia da obra  -> quem responde pela OS precisa fazer a devolutiva
+//                            ou pedir prorrogação
+//   • certificado         -> mudou de vigente para a vencer, ou para vencido
+//
+// Como o servidor é serverless (a Vercel não mantém processo em pé), não há
+// setInterval que sobreviva: o disparo vem de fora, por uma chamada diária a
+// GET /api/notificacoes/diarias — o cron declarado em vercel.json.
+//
+// A tabela `notificacoes_enviadas` é o que impede o mesmo aviso de sair duas
+// vezes: a chave carrega o dia, então rodar o cron dez vezes no mesmo dia
+// manda um e-mail só. E, como a chave é única no banco, duas execuções
+// simultâneas também não se atropelam.
+// ============================================================
+let _notifTabelaOk = false;
+async function garantirTabelaNotificacoes() {
+    if (_notifTabelaOk) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS notificacoes_enviadas (
+            id        SERIAL PRIMARY KEY,
+            chave     TEXT NOT NULL UNIQUE,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    _notifTabelaOk = true;
+}
+
+// Reserva o aviso. Devolve true só na PRIMEIRA vez — quem receber false não
+// deve enviar nada.
+async function reservarAviso(chave) {
+    try {
+        await garantirTabelaNotificacoes();
+        const r = await pool.query(
+            "INSERT INTO notificacoes_enviadas (chave) VALUES ($1) ON CONFLICT (chave) DO NOTHING RETURNING id",
+            [String(chave)]
+        );
+        return r.rows.length > 0;
+    } catch (e) {
+        console.warn("AVISO: falha ao reservar o aviso:", e.message);
+        return false;
+    }
+}
+
+// O status do certificado não é uma coluna: ele é a data de vencimento lida
+// contra hoje. É essa leitura que "muda de status" de um dia para o outro.
+const CERT_DIAS_A_VENCER = 30;
+
+function statusCertificado(dataVencimento) {
+    if (!dataVencimento) return 'sem vencimento';
+    const venc = new Date(dataVencimento);
+    if (isNaN(venc)) return 'sem vencimento';
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    venc.setHours(0, 0, 0, 0);
+    const dias = Math.round((venc - hoje) / 86400000);
+    if (dias < 0) return 'Vencido';
+    if (dias <= CERT_DIAS_A_VENCER) return `A vencer (${dias} dia${dias === 1 ? '' : 's'})`;
+    return 'Vigente';
+}
+
+// ------------------------------------------------------------
+// GET /api/notificacoes/diarias
+//
+// Chamada pelo cron uma vez por dia. Também pode ser aberta à mão para
+// conferir o que sairia — a resposta lista tudo que foi enviado.
+// ------------------------------------------------------------
+app.get("/api/notificacoes/diarias", async (req, res) => {
+    const saida = { data: new Date().toISOString().slice(0, 10), devolutiva: [], certificados: [], erros: [] };
+
+    try {
+        const hoje = saida.data;
+
+        // ---- ÚLTIMO DIA DA OBRA (e os atrasos) ----
+        // Vale para a OS que vence HOJE e para as que já venceram e continuam
+        // em campo: um aviso por dia, até a devolutiva acontecer.
+        try {
+            const r = await pool.query(`
+                SELECT * FROM solicitacoes
+                 WHERE LOWER(COALESCE(status,'')) IN ('em_campo', 'prorrogada')
+                   AND data_fim IS NOT NULL
+                   AND data_fim <= CURRENT_DATE
+                 ORDER BY data_fim ASC
+            `);
+
+            for (const os of r.rows) {
+                const chave = `devolutiva:${os.id}:${hoje}`;
+                if (!(await reservarAviso(chave))) continue;
+
+                const dias = Math.max(0, Math.round(
+                    (new Date(hoje) - new Date(String(os.data_fim).slice(0, 10))) / 86400000
+                ));
+
+                // Quem responde pela obra recebe sempre; os demais dependem da
+                // permissão de notificação (ver destinatarios em email.js).
+                const alvos = [];
+                if (os.responsavel_id) alvos.push(os.responsavel_id);
+                if (os.solicitado_por_id) alvos.push(os.solicitado_por_id);
+
+                const envio = await mail.notificar(pool, 'devolutiva', {
+                    os,
+                    diasAtraso: dias,
+                    instrumentos: _tagsPendentesDeDevolucao(os).map(t => ({ tag: t })),
+                    somenteIds: alvos.length ? alvos : null
+                });
+
+                await push.notificar(pool, 'devolver', {
+                    os,
+                    usuarioIds: alvos,
+                    corpo: dias > 0
+                        ? `Obra vencida há ${dias} dia(s) — faça a devolutiva ou peça prorrogação.`
+                        : 'Último dia da obra — faça a devolutiva ou peça prorrogação.'
+                });
+
+                saida.devolutiva.push({ os: os.numero_os || os.id, dias, enviados: envio.enviados });
+            }
+        } catch (e) {
+            saida.erros.push('devolutiva: ' + e.message);
+        }
+
+        // ---- CERTIFICADOS QUE MUDARAM DE STATUS ----
+        // "Mudou de status" aqui é: venceu hoje, ou entrou hoje na janela dos
+        // 30 dias. Nos dois casos o dia é a fronteira, e é por isso que a
+        // chave do aviso leva a data.
+        try {
+            const r = await pool.query(`
+                SELECT c.*, f.tag, f.tipo
+                  FROM certificados c
+             LEFT JOIN ferramentas f ON f.id = c.instrumento_id
+                 WHERE c.data_vencimento IS NOT NULL
+                   AND (c.data_vencimento = CURRENT_DATE
+                        OR c.data_vencimento = CURRENT_DATE + ($1 || ' days')::interval)
+            `, [String(CERT_DIAS_A_VENCER)]);
+
+            for (const c of r.rows) {
+                const venceHoje = String(c.data_vencimento).slice(0, 10) === hoje;
+                const chave = `certificado:${c.id}:${venceHoje ? 'vencido' : 'a-vencer'}:${hoje}`;
+                if (!(await reservarAviso(chave))) continue;
+
+                const envio = await mail.notificar(pool, 'certificado', {
+                    tag: c.tag,
+                    tipo: c.tipo,
+                    numero: c.numero,
+                    statusAnterior: venceHoje ? `A vencer` : 'Vigente',
+                    statusNovo: venceHoje ? 'Vencido' : `A vencer (${CERT_DIAS_A_VENCER} dias)`,
+                    dataCalibracao: c.data_emissao,
+                    dataVencimento: c.data_vencimento,
+                    usuario: 'Sistema (verificação diária)',
+                    data: new Date()
+                });
+                saida.certificados.push({
+                    certificado: c.numero || c.id,
+                    tag: c.tag,
+                    situacao: venceHoje ? 'vencido' : 'a vencer',
+                    enviados: envio.enviados
+                });
+            }
+        } catch (e) {
+            saida.erros.push('certificados: ' + e.message);
+        }
+
+        res.json(saida);
+    } catch (err) {
+        console.error("ERRO: GET /api/notificacoes/diarias:", err.message);
+        res.status(500).json({ erro: err.message, parcial: saida });
+    }
+});
+
 
 // ============================================================
 // ARQUIVOS ESTÁTICOS (apenas fora da Vercel)

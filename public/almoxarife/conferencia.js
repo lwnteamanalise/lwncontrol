@@ -628,9 +628,6 @@ async function abrirModalConferenciaOS(osId) {
     window.__osBaiasIdsAtuais = baiasDaOS.map(v => parseInt(v)).filter(v => !isNaN(v));
     window.__osPeriodoAtual = { inicio: os.data_inicio, fim: os.data_fim, osId: os.id };
 
-    const baiasLinhas = (window.__osBaiasIdsAtuais.length ? window.__osBaiasIdsAtuais : [null])
-        .map(id => osBaiaLinhaHTML(id)).join('');
-
     fecharModalConferenciaOS();
     const modal = document.createElement('div');
     modal.className = 'modal-overlay active';
@@ -657,27 +654,33 @@ async function abrirModalConferenciaOS(osId) {
                         Status atual: <strong style="color:var(--text-main);">${(os.status || '').replace(/_/g, ' ') || '—'}</strong> (não alterável nesta tela)
                     </div>
 
+                    <!-- O QUE ESTA OS PEDIU
+                         Só leitura: um placar de bipadas/pedidas por ativo,
+                         que se preenche conforme as TAGs são bipadas. -->
                     <div class="form-group">
-                        <label class="form-label">Baias</label>
-                        <div id="edit-os-baias-lista">${baiasLinhas}</div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="adicionarBaiaEdicaoOS()" style="margin-top:0.4rem;">
-                            + Adicionar outra baia
-                        </button>
+                        <label class="form-label">Ativos desta OS</label>
+                        <div id="conf-sep-placar" style="display:flex;flex-direction:column;gap:0.35rem;"></div>
                     </div>
 
-                    ${typeof renderAtivosEditarOS === 'function' ? renderAtivosEditarOS(os) : ''}
+                    <!-- UM CAMPO SÓ — A BAIA E AS FERRAMENTAS
+                         Quem está no balcão bipa tudo em sequência, sem trocar
+                         de campo: o código lido é testado primeiro como BAIA e,
+                         não sendo uma, como ferramenta.
 
-                    <!-- BIPAGEM DA SEPARAÇÃO — UM CAMPO SÓ
-                         Escolher a TAG e a baia nos campos acima diz onde a OS
-                         DEVERIA estar; bipar diz onde ela ESTÁ. Os dois entram
-                         pelo mesmo campo: o código é testado primeiro contra as
-                         TAGs escolhidas e, não sendo nenhuma, contra as baias. -->
+                         A ORDEM, essa sim, continua obrigatória: enquanto
+                         nenhuma baia tiver sido bipada, ferramenta nenhuma é
+                         aceita — é a baia que diz ONDE a separação está sendo
+                         montada. O aviso logo abaixo do campo diz o que falta. -->
                     <div class="form-group" style="margin-top:0.9rem;">
                         <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.35rem;">
-                            <label class="form-label" style="margin:0;">Bipagem das TAGs e baias separadas</label>
+                            <label class="form-label" style="margin:0;">Bipe a baia e as ferramentas</label>
                             <span id="conf-sep-contador" style="font-size:0.76rem;font-weight:700;color:var(--primary);">0 bipada(s)</span>
                         </div>
+                        <div id="conf-sep-trava" style="border:1px dashed var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 10%, transparent);border-radius:0.5rem;padding:0.55rem 0.75rem;font-size:0.8rem;font-weight:600;color:var(--warning,#f59e0b);margin-bottom:0.45rem;">
+                            Comece pela <strong>baia</strong> — as ferramentas só são aceitas depois dela.
+                        </div>
                         ${confCampoBipagemHTML('conf-sep-codigo', 'conf-sep-scanner-btn', 'confSepBipar()', "abrirScannerCampo('conf-sep-codigo', confSepBipar)")}
+                        <div id="conf-sep-aviso" style="display:none;margin-top:0.5rem;"></div>
                         <div id="conf-sep-baias-bipadas" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.55rem;"></div>
                         <div id="conf-sep-bipados" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.35rem;"></div>
                     </div>
@@ -693,77 +696,216 @@ async function abrirModalConferenciaOS(osId) {
 
     confSepBipados = [];
     confSepBaiasBipadas = [];
+    confSepOS = os;
     confSepRenderBipados();
     confSepRenderBaias();
+    confSepRenderPlacar();
+    confSepAtualizarTrava();
+
     // O leitor físico vale para todos: sem a permissão de digitar, ele é a
     // única entrada por teclado que o campo aceita (ver confCampoBipagemHTML).
-    const campoSep = document.getElementById('conf-sep-codigo');
-    if (campoSep && typeof lwnLigarLeitorBipagem === 'function') {
-        lwnLigarLeitorBipagem(campoSep, (codigo) => { confSepBipar(codigo); });
-    }
-    // Trocar uma TAG no select muda o "X de Y" e pode invalidar o que já foi
-    // bipado — a bipagem daquela TAG é descartada junto.
-    modal.addEventListener('change', (e) => {
-        if (e.target.classList?.contains('edit-os-baia-select')) {
-            const validas = new Set(confSepBaiasSelecionadas().map(b => String(b.id)));
-            confSepBaiasBipadas = confSepBaiasBipadas.filter(b => validas.has(String(b.id)));
-            confSepRenderBaias();
-            return;
+    // Um campo só, um leitor só — quem bipa não troca de lugar entre a baia e
+    // as ferramentas.
+    if (typeof lwnLigarLeitorBipagem === 'function') {
+        const campoSep = document.getElementById('conf-sep-codigo');
+        if (campoSep) {
+            lwnLigarLeitorBipagem(campoSep, (codigo) => { confSepBipar(codigo); });
+            setTimeout(() => campoSep.focus(), 120);
         }
-        if (!e.target.classList?.contains('edit-os-tag-select')) return;
-        const validas = new Set(confSepTagsSelecionadas().map(t => String(t.tag || '').toUpperCase()));
-        confSepBipados = confSepBipados.filter(b => validas.has(String(b.tag || '').toUpperCase()));
-        confSepRenderBipados();
-    });
+    }
 }
 window.abrirModalConferenciaOS = abrirModalConferenciaOS;
 
 // ============================================================
-// BIPAGEM DENTRO DA SEPARAÇÃO
+// BIPAGEM DENTRO DA SEPARAÇÃO — BIPAR É ESCOLHER
+//
+// Não existe mais select nesta tela. Antes, separar era um trabalho em dois
+// tempos (escolher a TAG numa lista e depois bipá-la para provar que era
+// aquela mesma), e a lista podia estar errada sem ninguém perceber. Agora o
+// único gesto é bipar: a TAG que o leitor lê é a TAG que entra na OS.
+//
+// Duas travas mandam nesta tela:
+//
+//   1. A BAIA VEM PRIMEIRO. O campo das ferramentas nasce desligado e só é
+//      liberado quando a baia é bipada — sem ela não se sabe onde a separação
+//      está sendo montada.
+//   2. QUEM DECIDE É O BACKEND. Cada código vai para
+//      POST /api/separacao/validar, que recusa TAG indisponível, TAG de ativo
+//      que esta OS não pediu e TAG além da quantidade pedida. Estando em
+//      OUTRA obra, a resposta diz qual — e a tela oferece o link para o
+//      Remanejamento em vez de só dizer "não pode".
 //
 // Estado próprio: nada aqui se mistura com confEstado, que é a sessão de
-// bipagem do técnico. O que se bipa aqui é conferido contra as TAGs
-// escolhidas nos selects do próprio modal.
+// bipagem do técnico.
 // ============================================================
 let confSepBipados = [];
 let confSepBaiasBipadas = [];
+let confSepOS = null;
 
-// As baias escolhidas nos selects do modal. O value é o id da ferramenta-baia
-// no Inventário, e a TAG dela é o nome oficial da baia.
-function confSepBaiasSelecionadas() {
-    return Array.from(document.querySelectorAll('#conferencia-os-modal .edit-os-baia-select'))
-        .map(sel => sel.value).filter(v => v !== '')
-        .map(v => {
-            const inst = (typeof instruments !== 'undefined' ? instruments : [])
-                .find(i => String(i.id) === String(v));
-            return inst ? { id: inst.id, tag: inst.tag } : { id: v, tag: `Baia ${v}` };
-        });
+// Quantas unidades de cada ATIVO esta OS pediu.
+function confSepPedidos() {
+    const os = confSepOS;
+    if (!os) return {};
+    let fonte = os.quantidades;
+    if (typeof fonte === 'string') { try { fonte = JSON.parse(fonte); } catch (e) { fonte = {}; } }
+    if (!fonte || typeof fonte !== 'object' || Array.isArray(fonte)) fonte = {};
+    const mapa = {};
+    Object.keys(fonte).forEach(chave => {
+        const qtd = parseInt(fonte[chave]) || 0;
+        if (qtd > 0 && isNaN(Number(chave))) mapa[chave] = qtd;
+    });
+    return mapa;
 }
-window.confSepBaiasSelecionadas = confSepBaiasSelecionadas;
 
-// Mantida por compatibilidade (scanner antigo apontando para a baia): hoje o
-// campo é um só, então isto apenas encaminha para confSepBipar.
-async function confSepBiparBaia(codigoParam) {
-    return confSepBipar(codigoParam);
+function confSepTotalPedido() {
+    return Object.values(confSepPedidos()).reduce((a, b) => a + b, 0);
 }
-window.confSepBiparBaia = confSepBiparBaia;
 
-function confSepRegistrarBaia(baia, codigo, input) {
-    if (confSepBaiasBipadas.some(b => String(b.id) === String(baia.id))) {
-        showToast(`${baia.tag} já foi bipada.`, 'warning');
-        if (input) { input.value = ''; input.focus?.(); }
+// Placar por ativo: "2 de 3 bipada(s)". É o que substituiu a fileira de
+// selects — mostra o que falta sem pedir nenhuma escolha.
+function confSepRenderPlacar() {
+    const box = document.getElementById('conf-sep-placar');
+    if (!box) return;
+    const pedidos = confSepPedidos();
+    const tipos = Object.keys(pedidos).sort();
+
+    if (!tipos.length) {
+        box.innerHTML = `<div style="font-size:0.78rem;color:var(--text-muted);">
+            Esta OS não tem lista de ativos — qualquer TAG disponível pode ser bipada.
+        </div>`;
         return;
     }
-    confSepBaiasBipadas.push({ id: baia.id, tag: baia.tag, codigo: codigo || baia.tag });
-    showToast(`${baia.tag} bipada.`, 'success');
-    if (input) { input.value = ''; input.focus?.(); }
-    confSepRenderBaias();
+
+    box.innerHTML = tipos.map(tipo => {
+        const pedida = pedidos[tipo];
+        const bipadas = confSepBipados.filter(b =>
+            String(b.tipo || '').toUpperCase() === String(tipo).toUpperCase()).length;
+        const completo = bipadas >= pedida;
+        const tags = confSepBipados
+            .filter(b => String(b.tipo || '').toUpperCase() === String(tipo).toUpperCase())
+            .map(b => confEscapar(b.tag)).join(', ');
+        return `
+            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;border:1px solid ${completo ? 'var(--success,#22c55e)' : 'var(--border-color)'};border-radius:0.45rem;padding:0.45rem 0.6rem;background:var(--bg-surface);">
+                <strong style="font-size:0.82rem;color:var(--text-main);">${confEscapar(tipo)}</strong>
+                <span style="margin-left:auto;font-size:0.76rem;font-weight:800;color:${completo ? 'var(--success,#22c55e)' : 'var(--text-muted)'};">
+                    ${bipadas} de ${pedida}
+                </span>
+                ${tags ? `<span style="flex-basis:100%;font-family:monospace;font-size:0.72rem;color:var(--text-muted);">${tags}</span>` : ''}
+            </div>`;
+    }).join('');
 }
-window.confSepRegistrarBaia = confSepRegistrarBaia;
+window.confSepRenderPlacar = confSepRenderPlacar;
+
+// A trava da baia. Com um campo só, ela não pode desligar nada — o mesmo
+// campo precisa aceitar a baia justamente enquanto a trava vale. O que ela
+// faz é dizer o que falta: some assim que a baia é bipada.
+function confSepAtualizarTrava() {
+    const liberado = confSepBaiasBipadas.length > 0;
+    const trava = document.getElementById('conf-sep-trava');
+    if (trava) trava.style.display = liberado ? 'none' : 'block';
+    return liberado;
+}
+window.confSepAtualizarTrava = confSepAtualizarTrava;
+
+// Aviso rico (com link) abaixo do campo das TAGs. Some ao próximo bipe certo.
+function confSepAviso(html, cor) {
+    const box = document.getElementById('conf-sep-aviso');
+    if (!box) return;
+    if (!html) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    const c = cor || 'var(--danger,#ef4444)';
+    box.style.display = 'block';
+    box.innerHTML = `
+        <div style="border:1px solid ${c};background:color-mix(in srgb, ${c} 10%, transparent);border-radius:0.5rem;padding:0.6rem 0.75rem;font-size:0.8rem;color:var(--text-main);">
+            ${html}
+        </div>`;
+}
+window.confSepAviso = confSepAviso;
+
+// Leva para a aba Remanejamento a partir do aviso "está em outra obra".
+// Fecha o modal da separação antes: a aba fica atrás dele.
+function confSepIrParaRemanejamento() {
+    fecharModalConferenciaOS();
+    if (typeof switchTab === 'function') switchTab('remanejamento');
+    if (typeof showRemMode === 'function') setTimeout(() => showRemMode('passando'), 150);
+}
+window.confSepIrParaRemanejamento = confSepIrParaRemanejamento;
+
+// ------------------------------------------------------------
+// CAMPO 1 — A BAIA
+// ------------------------------------------------------------
+// Tenta tratar o código como BAIA. Devolve true quando tratou (bipou, ou
+// avisou que já estava bipada) e false quando o código não é uma baia — é
+// esse false que faz confSepBipar seguir e tentar como ferramenta.
+//
+// `silencioSeNaoForBaia` existe porque, no campo único, "não é baia" não é
+// erro: é só o primeiro dos dois palpites. Só a chamada direta (o botão da
+// câmera apontado para a baia) reclama em voz alta.
+async function confSepBiparBaia(codigoParam, opcoes) {
+    const calado = !!(opcoes && opcoes.silencioSeNaoForBaia);
+    const input = document.getElementById('conf-sep-codigo');
+    const codigo = String(codigoParam || input?.value || '').trim();
+    if (!codigo) {
+        if (!calado) showToast('Bipe o código da baia.', 'danger');
+        return false;
+    }
+
+    try {
+        const resp = await fetch(`${API_URL}/conferencia/validar-baia`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ codigo })
+        });
+        const dados = await resp.json().catch(() => ({}));
+
+        if (!resp.ok || !dados.valido || !dados.baia) {
+            if (!calado) {
+                showToast(dados.erro || `"${codigo}" não é uma baia cadastrada no Inventário.`, 'danger');
+                if (input) input.select?.();
+            }
+            return false;
+        }
+
+        const baia = dados.baia;
+        const nome = (typeof confNomeBaia === 'function') ? confNomeBaia(baia) : (baia.tag || `Baia ${baia.id}`);
+        const idFerramenta = baia.ferramenta_id || dados.ferramenta?.id || null;
+
+        if (confSepBaiasBipadas.some(b => String(b.id) === String(baia.id))) {
+            showToast(`${nome} já foi bipada.`, 'warning');
+            if (input) { input.value = ''; input.focus?.(); }
+            return true;
+        }
+
+        confSepBaiasBipadas.push({
+            id: baia.id,
+            ferramenta_id: idFerramenta,
+            tag: nome,
+            codigo: codigo
+        });
+        confSepAviso(null);
+        showToast(`${nome} bipada — pode bipar as ferramentas.`, 'success');
+        if (input) { input.value = ''; input.focus?.(); }
+        confSepRenderBaias();
+        confSepAtualizarTrava();
+        return true;
+    } catch (err) {
+        console.error('Erro ao validar a baia:', err);
+        if (!calado) showToast('Erro ao validar a baia: ' + err.message, 'danger');
+        return false;
+    }
+}
+window.confSepBiparBaia = confSepBiparBaia;
 
 function confSepRemoverBaia(idx) {
     confSepBaiasBipadas.splice(idx, 1);
     confSepRenderBaias();
+    // Sem baia, a bipagem de ferramenta volta a ser recusada — e o que já
+    // tinha sido bipado é descartado, porque foi bipado "para aquela baia".
+    if (!confSepAtualizarTrava() && confSepBipados.length) {
+        confSepBipados = [];
+        confSepRenderBipados();
+        showToast('Baia removida — a bipagem das ferramentas foi zerada.', 'warning');
+    }
+    document.getElementById('conf-sep-codigo')?.focus();
 }
 window.confSepRemoverBaia = confSepRemoverBaia;
 
@@ -772,7 +914,7 @@ function confSepRenderBaias() {
     confSepAtualizarContador();
     if (!box) return;
     box.innerHTML = confSepBaiasBipadas.length ? confSepBaiasBipadas.map((b, idx) => `
-        <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;border:1px solid var(--border-color);border-radius:0.4rem;padding:0.4rem 0.55rem;">
+        <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;border:1px solid var(--success,#22c55e);border-radius:0.4rem;padding:0.4rem 0.55rem;background:color-mix(in srgb, var(--success,#22c55e) 8%, transparent);">
             <span style="font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-muted);">Baia</span>
             <span style="font-family:monospace;font-weight:700;font-size:0.8rem;color:var(--text-main);">${confEscapar(b.tag)}</span>
             <button type="button" class="btn btn-outline btn-sm" style="margin-left:auto;padding:0.15rem 0.5rem;font-size:0.7rem;"
@@ -780,79 +922,123 @@ function confSepRenderBaias() {
         </div>`).join('')
         : '';
 }
-
-// Um campo, um contador: ele diz as duas contas ao mesmo tempo.
-function confSepAtualizarContador() {
-    const contador = document.getElementById('conf-sep-contador');
-    if (!contador) return;
-    const totalTags = confSepTagsSelecionadas().length;
-    const totalBaias = confSepBaiasSelecionadas().length;
-    const partes = [`${confSepBipados.length} de ${totalTags} TAG(s)`];
-    if (totalBaias) partes.push(`${confSepBaiasBipadas.length} de ${totalBaias} baia(s)`);
-    contador.textContent = partes.join(' · ');
-}
-window.confSepAtualizarContador = confSepAtualizarContador;
 window.confSepRenderBaias = confSepRenderBaias;
 
+// As baias bipadas são as baias da OS: não há mais select para escolhê-las.
+function confSepBaiasSelecionadas() {
+    return confSepBaiasBipadas.slice();
+}
+window.confSepBaiasSelecionadas = confSepBaiasSelecionadas;
+
+// As TAGs bipadas são as TAGs escolhidas: bipar É escolher.
 function confSepTagsSelecionadas() {
-    return Array.from(document.querySelectorAll('#conferencia-os-modal .edit-os-tag-select'))
-        .map(sel => sel.value).filter(v => v !== '')
-        .map(v => {
-            const inst = (typeof instruments !== 'undefined' ? instruments : [])
-                .find(i => String(i.id) === String(v));
-            return inst ? { id: inst.id, tag: inst.tag, tipo: inst.tipo } : { id: v, tag: String(v), tipo: '' };
-        });
+    return confSepBipados.map(b => ({ id: b.ferramenta_id, tag: b.tag, tipo: b.tipo }));
 }
 window.confSepTagsSelecionadas = confSepTagsSelecionadas;
 
-// Campo ÚNICO da separação: o código bipado pode ser uma TAG ou uma baia.
-// A ordem é: TAG escolhida -> baia escolhida -> (resolve o código de barras no
-// backend) -> TAG por id -> baia por id -> recusa.
+function confSepAtualizarContador() {
+    const contador = document.getElementById('conf-sep-contador');
+    if (!contador) return;
+    const total = confSepTotalPedido();
+    contador.textContent = total
+        ? `${confSepBipados.length} de ${total} TAG(s)`
+        : `${confSepBipados.length} TAG(s)`;
+}
+window.confSepAtualizarContador = confSepAtualizarContador;
+
+// ------------------------------------------------------------
+// CAMPO 2 — AS FERRAMENTAS
+// ------------------------------------------------------------
 async function confSepBipar(codigoParam) {
     const input = document.getElementById('conf-sep-codigo');
     const codigo = String(codigoParam || input?.value || '').trim();
-    if (!codigo) { showToast('Informe ou bipe um código.', 'danger'); return; }
+    if (!codigo) { showToast('Bipe um código.', 'danger'); return; }
 
-    const escolhidas = confSepTagsSelecionadas();
-    const baias = confSepBaiasSelecionadas();
-    if (!escolhidas.length && !baias.length) {
-        showToast('Escolha as TAGs e a baia nos campos acima antes de bipar.', 'danger');
-        if (input) input.value = '';
+    // O código pode ser DUAS coisas, e o campo é um só. A baia é testada
+    // primeiro: ela é o que se espera bipar no começo, e testá-la depois
+    // faria a primeira bipagem da separação bater na trava abaixo.
+    if (await confSepBiparBaia(codigo, { silencioSeNaoForBaia: true })) return;
+
+    // Não era baia: então é ferramenta — e ferramenta exige a baia antes.
+    if (!confSepBaiasBipadas.length) {
+        confSepAviso(
+            '<strong style="color:var(--warning,#f59e0b);">Bipe a BAIA primeiro.</strong> '
+            + 'Nenhuma ferramenta é aceita antes dela.',
+            'var(--warning,#f59e0b)'
+        );
+        showToast('Bipe a BAIA antes de bipar qualquer ferramenta.', 'danger');
+        if (input) { input.value = ''; input.focus?.(); }
         return;
     }
 
-    const alvo = escolhidas.find(t =>
-        String(t.tag || '').toUpperCase() === codigo.toUpperCase() || String(t.id) === codigo
-    );
-    if (alvo) return confSepRegistrar(alvo, codigo, input);
-
-    const baia = baias.find(b =>
-        String(b.tag || '').toUpperCase() === codigo.toUpperCase() || String(b.id) === codigo
-    );
-    if (baia) return confSepRegistrarBaia(baia, codigo, input);
-
-    // Pode ser o código de barras, e não a TAG: pergunta ao backend qual ativo
-    // é esse código antes de recusar. Vale para ferramenta e para baia — as
-    // duas são ativos do Inventário.
     try {
-        const resp = await fetch(`${API_URL}/ferramentas/codigo/${encodeURIComponent(codigo)}`);
-        if (resp.ok) {
-            const f = await resp.json().catch(() => null);
-            if (f) {
-                const porCodigo = escolhidas.find(t => String(t.id) === String(f.id));
-                if (porCodigo) return confSepRegistrar(porCodigo, codigo, input);
-                const baiaPorCodigo = baias.find(b => String(b.id) === String(f.id));
-                if (baiaPorCodigo) return confSepRegistrarBaia(baiaPorCodigo, codigo, input);
-            }
-        }
-    } catch (e) { /* cai no aviso abaixo */ }
+        const resp = await fetch(`${API_URL}/separacao/validar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                os_id: confSepOS?.id,
+                codigo,
+                ja_bipadas: confSepBipados.map(b => b.tag)
+            })
+        });
+        const dados = await resp.json().catch(() => ({}));
 
-    showToast(`${codigo} não está entre as TAGs e baias escolhidas para esta OS.`, 'danger');
-    if (input) input.select?.();
+        if (!resp.ok || !dados.valido) {
+            confSepMostrarRecusa(dados, codigo);
+            if (input) input.select?.();
+            return;
+        }
+
+        const f = dados.ferramenta || {};
+        confSepBipados.push({
+            ferramenta_id: f.id,
+            tag: f.tag,
+            tipo: f.tipo,
+            codigo: codigo
+        });
+
+        confSepAviso(null);
+        showToast(`${f.tag} separada.`, 'success');
+        if (input) { input.value = ''; input.focus?.(); }
+        confSepRenderBipados();
+    } catch (err) {
+        console.error('Erro ao validar a bipagem da separação:', err);
+        showToast('Erro ao validar o código: ' + err.message, 'danger');
+    }
 }
 window.confSepBipar = confSepBipar;
 
+// A recusa explica o motivo E, quando dá, oferece a saída. Ferramenta presa a
+// outra obra não é um beco sem saída: é um remanejamento a fazer, e o texto
+// leva até a aba com um clique.
+function confSepMostrarRecusa(dados, codigo) {
+    const motivo = dados?.motivo || '';
+    const tag = dados?.ferramenta?.tag || codigo;
+
+    if (motivo === 'em_outra_obra') {
+        const c = dados.os_conflito || {};
+        const numero = `#OS-${String(c.numero_os || c.id || '').padStart(4, '0')}`;
+        confSepAviso(`
+            <strong style="display:block;margin-bottom:0.25rem;color:var(--danger,#ef4444);">
+                ${confEscapar(tag)} não está disponível
+            </strong>
+            Ela está na obra <strong>${confEscapar(c.obra || '—')}</strong> (${confEscapar(numero)}).
+            Para trazê-la para esta OS,
+            <a href="#" onclick="event.preventDefault();confSepIrParaRemanejamento();"
+               style="color:var(--primary);font-weight:800;text-decoration:underline;cursor:pointer;">
+               realize o remanejamento</a>.
+        `);
+        showToast(`${tag} está em outra obra — é preciso remanejar.`, 'danger');
+        return;
+    }
+
+    confSepAviso(`<strong style="color:var(--danger,#ef4444);">${confEscapar(dados?.erro || `${tag} não pode ser separada nesta OS.`)}</strong>`);
+    showToast(dados?.erro || `${tag} não pode ser separada nesta OS.`, 'danger');
+}
+
 function confSepRegistrar(ferramenta, codigo, input) {
+    // Mantida por compatibilidade com chamadas antigas: hoje quem registra é
+    // confSepBipar, depois do aval do backend.
     if (confSepBipados.some(b => String(b.tag || '').toUpperCase() === String(ferramenta.tag || '').toUpperCase())) {
         showToast(`${ferramenta.tag} já foi bipada.`, 'warning');
         if (input) { input.value = ''; input.focus?.(); }
@@ -864,7 +1050,6 @@ function confSepRegistrar(ferramenta, codigo, input) {
         tipo: ferramenta.tipo,
         codigo: codigo || ferramenta.tag
     });
-    showToast(`${ferramenta.tag} bipada.`, 'success');
     if (input) { input.value = ''; input.focus?.(); }
     confSepRenderBipados();
 }
@@ -877,6 +1062,7 @@ window.confSepRemoverBipado = confSepRemoverBipado;
 
 function confSepRenderBipados() {
     confSepRenderBaias();
+    confSepRenderPlacar();
     const box = document.getElementById('conf-sep-bipados');
     confSepAtualizarContador();
     if (!box) return;
@@ -901,62 +1087,50 @@ async function salvarConferenciaOS(e, osId) {
     const os = (workOrders || []).find(o => String(o.id) === String(osId));
     if (!os) { showToast('OS não encontrada.', 'danger'); return false; }
 
-    const baiasSelecionadas = Array.from(document.querySelectorAll('#conferencia-os-modal .edit-os-baia-select'))
-        .map(sel => parseInt(sel.value)).filter(v => !isNaN(v));
-    const baiasUnicas = [...new Set(baiasSelecionadas)];
-    if (baiasUnicas.length !== baiasSelecionadas.length) {
-        showToast('A mesma baia foi selecionada mais de uma vez!', 'danger');
-        return false;
-    }
-
-    const tagsSelecionadas = Array.from(document.querySelectorAll('#conferencia-os-modal .edit-os-tag-select'))
-        .map(sel => sel.value).filter(v => v !== '')
-        .map(v => isNaN(Number(v)) ? v : Number(v));
-    if (new Set(tagsSelecionadas.map(String)).size !== tagsSelecionadas.length) {
-        showToast('A mesma TAG foi selecionada mais de uma vez!', 'danger');
-        return false;
-    }
-
-    // Separou TAGs mas não vinculou nenhuma baia: exige confirmação explícita
-    // + justificativa, para não deixar isso passar em silêncio.
-    let observacoesFinal = os.observacoes;
-    if (tagsSelecionadas.length && baiasUnicas.length === 0) {
-        const justificativa = await confConfirmarSemBaia();
-        if (justificativa === null) return false; // usuário cancelou
-        observacoesFinal = [os.observacoes, `[Sem baia nesta OS] ${justificativa}`].filter(Boolean).join('\n');
-    }
-
-    // A bipagem é parte da separação: cada TAG escolhida precisa ter sido
-    // confirmada fisicamente ali no modal.
+    // O que foi BIPADO é o que vai ser gravado: não há mais select nenhum
+    // nesta tela, então a lista de TAGs da OS é exatamente a lista de TAGs
+    // que passaram pelo leitor e pelo aval do backend.
     const bipadasSep = (typeof confSepBipados !== 'undefined' ? confSepBipados : []);
-    if (tagsSelecionadas.length) {
-        const tagsEscolhidas = confSepTagsSelecionadas();
-        const bipadasUp = new Set(bipadasSep.map(b => String(b.tag || '').toUpperCase()));
-        const faltamBipar = tagsEscolhidas.filter(t => !bipadasUp.has(String(t.tag || '').toUpperCase()));
-        if (faltamBipar.length) {
-            showToast(
-                `Bipe todas as TAGs separadas. Faltam: ${faltamBipar.map(t => t.tag).join(', ')}`,
-                'danger'
-            );
-            document.getElementById('conf-sep-codigo')?.focus();
-            return false;
-        }
+    const baiasBipadas = (typeof confSepBaiasBipadas !== 'undefined' ? confSepBaiasBipadas : []);
+
+    // A baia é bipada ANTES de qualquer ferramenta (a tela trava o campo até
+    // isso acontecer), então chegar aqui sem baia só é possível quando nada
+    // foi bipado. Ainda assim a checagem fica: ela é a regra, não a tela.
+    if (!baiasBipadas.length) {
+        showToast('Bipe a BAIA desta separação antes de salvar.', 'danger');
+        document.getElementById('conf-sep-codigo')?.focus();
+        return false;
     }
 
-    // A baia também é bipada: escolher no select não prova que a ferramenta
-    // foi parar lá dentro.
-    if (baiasUnicas.length) {
-        const bipadasBaia = new Set((typeof confSepBaiasBipadas !== 'undefined' ? confSepBaiasBipadas : [])
-            .map(b => String(b.id)));
-        const faltamBaias = confSepBaiasSelecionadas().filter(b => !bipadasBaia.has(String(b.id)));
-        if (faltamBaias.length) {
-            showToast(
-                `Bipe todas as baias desta OS. Faltam: ${faltamBaias.map(b => b.tag).join(', ')}`,
-                'danger'
-            );
-            document.getElementById('conf-sep-baia-codigo')?.focus();
-            return false;
-        }
+    if (!bipadasSep.length) {
+        showToast('Bipe ao menos uma ferramenta para separar esta OS.', 'danger');
+        document.getElementById('conf-sep-codigo')?.focus();
+        return false;
+    }
+
+    // Ids das TAGs, na ordem em que foram bipadas: é isso que a OS grava em
+    // `instrumentos`.
+    const tagsSelecionadas = bipadasSep
+        .map(b => b.ferramenta_id)
+        .filter(v => v !== null && v !== undefined && v !== '');
+
+    // A baia da OS é a ferramenta-baia do Inventário (baia_ferramenta_ids).
+    const baiasUnicas = [...new Set(
+        baiasBipadas.map(b => parseInt(b.ferramenta_id ?? b.id)).filter(v => !isNaN(v))
+    )];
+
+    let observacoesFinal = os.observacoes;
+
+    // Faltou bipar alguma unidade dos ativos pedidos? Separar em parte é
+    // permitido, mas nunca em silêncio: o placar da tela já mostra o que
+    // falta e aqui vem o aviso antes da confirmação definitiva.
+    const totalPedido = (typeof confSepTotalPedido === 'function') ? confSepTotalPedido() : 0;
+    if (totalPedido && bipadasSep.length < totalPedido) {
+        const faltam = totalPedido - bipadasSep.length;
+        if (!confirm(
+            `Esta OS pediu ${totalPedido} ferramenta(s) e você bipou ${bipadasSep.length}.\n`
+            + `${faltam} ficará(ão) de fora da separação.\n\nDeseja continuar mesmo assim?`
+        )) return false;
     }
 
     // Dupla checagem: a separação é definitiva.
@@ -1376,12 +1550,20 @@ function abrirConferenciaOS(osId, etapa, selecao) {
         : confItensJaBipadosNaRetirada(os);
     const baiasJaBipadas = etapa === 'devolutiva' ? [] : confBaiasJaBipadasNaRetirada(os);
 
-    // A baia entra nesta rodada? Na seleção o usuário decide; sem seleção
-    // (fluxo antigo), a regra é: pede a baia só se a OS tiver uma e ela ainda
-    // não tiver sido bipada.
-    const exigirBaia = (selecao && typeof selecao.baia === 'boolean')
-        ? selecao.baia
-        : (confBaiasDaOS(os).length > 0 && (etapa === 'devolutiva' || baiasJaBipadas.length === 0));
+    // A baia entra nesta rodada?
+    //
+    //   RETIRADA   -> sempre que a OS tiver baia. Não é mais opcional nem
+    //                 escolhido na seleção: é a primeira bipagem da tela, e
+    //                 nenhuma ferramenta é aceita antes dela (ver confBipar).
+    //                 Vale inclusive nas rodadas seguintes de uma retirada
+    //                 parcial — quem volta para buscar o resto bipa a baia
+    //                 de novo, porque é dela que as ferramentas saem.
+    //   DEVOLUTIVA -> continua sendo a escolha feita na seleção.
+    const exigirBaia = etapa === 'conferencia'
+        ? confBaiasDaOS(os).length > 0
+        : (selecao && typeof selecao.baia === 'boolean')
+            ? selecao.baia
+            : confBaiasDaOS(os).length > 0;
 
     confEstado = {
         etapa, os, itens: [], baias: [],
@@ -1691,7 +1873,7 @@ function confTelaHTML(os, etapa) {
             <!-- BIPAGEM DE FERRAMENTA (também aceita a baia) -->
             <div style="border:1px solid var(--border-color);border-radius:0.6rem;padding:0.9rem;background:var(--bg-card);">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.4rem;">
-                    <label class="form-label" style="margin:0;">${etapa === 'conferencia' ? 'Bipe a ferramenta e a baia' : 'Bipagem de ferramenta'}</label>
+                    <label class="form-label" style="margin:0;">${etapa === 'conferencia' ? 'Bipe a BAIA e depois as ferramentas' : 'Bipagem de ferramenta'}</label>
                     <span style="font-size:0.72rem;color:var(--text-muted);">
                         ${confBaiasDaOS(os).length ? `Baia(s) desta OS: ${confBaiasDaOS(os).map(confNomeBaia).join(', ')}` : 'Esta OS não possui baia vinculada'}
                     </span>
@@ -1759,6 +1941,24 @@ async function confBipar(codigoParam) {
     const input = document.getElementById('conf-codigo');
     const codigo = String(codigoParam || input?.value || '').trim();
     if (!codigo) { showToast('Informe ou bipe um código.', 'danger'); return; }
+
+    // A BAIA VEM PRIMEIRO — na Retirada, e só nela.
+    //
+    // O campo é um só (ferramenta e baia entram pelo mesmo lugar), então a
+    // trava não pode simplesmente recusar tudo: ela recusa o que NÃO for a
+    // baia enquanto nenhuma baia tiver sido bipada. Bipar a baia continua
+    // funcionando, é justamente o que se espera do usuário aqui.
+    //
+    // A Devolutiva fica de fora de propósito: ali a ferramenta volta do campo
+    // e a baia pode nem estar junto.
+    if (confEstado.etapa === 'conferencia'
+        && confEstado.exigirBaia
+        && !confEstado.baias.length
+        && !(await confEhCodigoDeBaia(codigo))) {
+        showToast('Bipe a BAIA desta OS antes de bipar qualquer ferramenta.', 'danger');
+        if (input) { input.value = ''; input.focus(); }
+        return;
+    }
 
     if (confEstado.itens.some(i => String(i.codigo).toUpperCase() === codigo.toUpperCase()
         || String(i.tag || '').toUpperCase() === codigo.toUpperCase())) {
@@ -1899,6 +2099,38 @@ async function confAvisarSeJaRemanejada(ferramenta) {
         console.warn('Não foi possível checar remanejamentos da ferramenta:', err.message);
     }
 }
+
+// O código bipado é uma baia? Só pergunta, não registra — é o que permite à
+// trava da Retirada deixar a baia passar e barrar o resto.
+async function confEhCodigoDeBaia(codigo) {
+    try {
+        const resp = await fetch(`${API_URL}/conferencia/validar-baia`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ codigo, os_id: confEstado.os?.id })
+        });
+        if (resp.ok) {
+            const dados = await resp.json().catch(() => ({}));
+            if (dados.valido && dados.baia) return true;
+        }
+    } catch (e) { /* cai para a checagem de baia-container abaixo */ }
+
+    // Baia cadastrada como ferramenta-container (baia_pai_id).
+    try {
+        const r = await fetch(`${API_URL}/ferramentas/codigo/${encodeURIComponent(codigo)}`);
+        if (!r.ok) return false;
+        const f = await r.json().catch(() => null);
+        if (!f) return false;
+        if (String(f.tipo || '').toLowerCase().includes('baia')) return true;
+        const info = await fetch(`${API_URL}/ferramentas/${f.id}/baia-info`);
+        if (!info.ok) return false;
+        const dados = await info.json().catch(() => ({}));
+        return !!(dados.baia && Array.isArray(dados.itens) && dados.itens.length);
+    } catch (e) {
+        return false;
+    }
+}
+window.confEhCodigoDeBaia = confEhCodigoDeBaia;
 
 // Tenta interpretar o código bipado como uma BAIA (tabela fixa "baias" OU
 // uma ferramenta cadastrada como Baia/container). Retorna true quando tratou.
@@ -2513,12 +2745,17 @@ async function abrirSelecaoBipagem(osId, etapa) {
             </div>
         </div>` : '';
 
-    // A baia entra nesta rodada? Numa retirada em rodadas, a baia já foi
-    // bipada da primeira vez — não faz sentido cobrá-la de novo, mas quem
-    // quiser reconferir marca a caixa.
+    // A BAIA SÓ APARECE AQUI NA DEVOLUTIVA.
+    //
+    // Na Retirada ela deixou de ser uma escolha: bipar a baia é obrigatório e
+    // acontece ANTES de qualquer ferramenta, na tela de bipagem. Listá-la
+    // aqui, entre "as ferramentas que você vai levar para a obra", dava a
+    // entender que dava para deixá-la de fora — e não dá.
+    //
+    // Na Devolutiva a caixa continua: lá a baia pode estar voltando ou não.
     const baiasDaOS = confBaiasDaOS(os);
-    const baiasJaBipadas = etapa === 'devolutiva' ? [] : confBaiasJaBipadasNaRetirada(os);
-    const escolhaBaia = baiasDaOS.length ? `
+    const baiasJaBipadas = [];
+    const escolhaBaia = (etapa === 'devolutiva' && baiasDaOS.length) ? `
         <label style="display:flex;align-items:center;gap:0.55rem;margin-top:0.8rem;border:1px solid var(--border-color);
                       border-radius:0.5rem;padding:0.55rem 0.7rem;background:var(--bg-surface);cursor:pointer;flex-wrap:wrap;">
             <input type="checkbox" id="conf-selecao-baia" ${baiasJaBipadas.length ? '' : 'checked'}
