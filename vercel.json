@@ -25,7 +25,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=3600, must-revalidate"
+          "value": "public, no-cache, must-revalidate"
         }
       ]
     },
@@ -56,6 +56,18 @@
     {
       "path": "/api/notificacoes/diarias",
       "schedule": "0 11 * * *"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/almoxarife/redefinir-senha.html",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/almoxarife/redefinir-senha",
+      "destination": "/",
+      "permanent": false
     }
   ]
 }

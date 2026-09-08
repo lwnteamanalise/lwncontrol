@@ -423,14 +423,12 @@ const MONTADORES = {
             campos: [
                 ['Número da OS', esc(numeroOS(os))],
                 ['Cliente', esc(os.cliente || '—')],
-                ['Obra', esc(os.obra || os.cliente || '—')],
                 ['Responsável pela obra', esc(os.responsavel || '—')],
                 ['Solicitado por', esc(d.solicitante || '—')],
                 ['Início da obra', esc(data(os.data_inicio))],
                 ['Término previsto', esc(data(os.data_fim))],
-                ['Ativos solicitados', esc(itens || '—')],
+                ['Ferramentas solicitadas', esc(itens || '—')],
                 ['Total de itens', esc(String(d.totalItens ?? '—'))],
-                ['Baia(s)', esc(d.baias || '—')],
                 ['Observações', esc(os.observacoes || '—')],
                 ['Enviada em', esc(dataHora(os.created_at || new Date()))]
             ],
