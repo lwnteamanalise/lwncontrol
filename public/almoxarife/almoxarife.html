@@ -992,10 +992,8 @@
                                  hora de confirmar a passagem (ver submitRemPassando). -->
 
                             <label class="form-label" style="display:block;margin-bottom:0.5rem;">Bipagem de ferramenta</label>
-                            <!-- Montado por JS: sem a permissão "bipagem_manual" o botão
-                                 "Adicionar" some e a digitação é descartada, mas o campo
-                                 continua aceitando o LEITOR físico e a câmera
-                                 (ver remCampoBipagemHTML). -->
+                            <!-- Montado por JS: o campo não aceita digitação — só o
+                                 LEITOR físico e a câmera (ver remCampoBipagemHTML). -->
                             <div id="rem-campo-bipagem" style="margin-bottom:0.8rem;"></div>
 
                             <label class="form-label" style="display:block;margin-bottom:0.4rem;">Ferramentas bipadas</label>
@@ -1302,7 +1300,6 @@
                                         <th>Função / Escopo</th>
                                         <th>Acessos Módulos</th>
                                         <th>Status Conta</th>
-                                        <th style="text-align: center;">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody id="usuarios-tbody"></tbody>
@@ -1597,6 +1594,7 @@
     <script src="/almoxarife/conferencia.js"></script>
     <script src="/almoxarife/os-parciais.js"></script>
     <script src="/almoxarife/aprovacao.js"></script>
+    <script src="/face-lwn.js"></script>
     <script src="/almoxarife/facial.js"></script>
 </body>
 </html>

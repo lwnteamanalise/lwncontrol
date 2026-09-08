@@ -250,10 +250,10 @@ const PERMISSOES_MODULOS = [
     // "Estou passando", e ele cai na aba "Aprovar" de quem tem esta permissão.
     // Nada sai da obra antes desse aval.
     ['aprovar_remanejamento', 'Aprovar remanejamento'],
-    // Sem ela o botão "Adicionar" some e o que for TECLADO À MÃO (ou colado)
-    // no campo é descartado. BIPAR continua liberado para todo mundo: o
-    // leitor físico de código de barras e a câmera adicionam sozinhos.
-    ['bipagem_manual', 'Digitar/colar código na bipagem (o leitor e a câmera continuam livres)'],
+    // A permissão "bipagem_manual" (digitar/colar o código à mão) foi
+    // removida da lista: DIGITAR deixou de ser uma opção para qualquer cargo.
+    // Todo código entra pela câmera ou pelo leitor físico — é o que garante
+    // que a TAG registrada é a que estava na mão de quem bipou.
     ['concluidos', 'OS Concluídas'],
     ['certificados', 'Certificados'],
     ['baias', 'Localização'],
@@ -357,9 +357,7 @@ const PERMISSOES_HERDADAS = [
     // Aprovar remanejamento: quem já administrava as OS decide, até que a
     // permissão seja marcada explicitamente em algum cargo.
     ['aprovar_remanejamento', ['gerenciar_os', 'aprovar_todas_os']],
-    // Digitar o código na bipagem era o comportamento de todo mundo antes
-    // desta permissão existir — quem já bipava continua podendo digitar.
-    ['bipagem_manual', ['separar_tags', 'gerenciar_os']],
+    // (a herança de "bipagem_manual" saiu junto com a permissão)
     // Prorrogar era um ato direto: quem já podia prorrogar continua decidindo
     // (agora aprovando o pedido), para nenhuma OS ficar sem quem aceite.
     ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']]
@@ -474,6 +472,90 @@ window.renderCargoResponsavelHtml = renderCargoResponsavelHtml;
 // padrão antigo trazia todas as permissões já marcadas, e quem criava um
 // cargo restrito precisava desmarcar 20 caixas antes de marcar as 2 que
 // queria. Agora se marca uma a uma.
+// ============================================================
+// COPIAR AS PERMISSÕES DE OUTRO CARGO
+//
+// Um cargo novo quase nunca nasce do zero: ele é "o Técnico, mas sem mexer
+// em OS" ou "o Almoxarife, mais os Logs". Marcar 25 caixas à mão para depois
+// desmarcar duas é trabalho à toa — e é onde se erra.
+//
+// O select COPIA e para por aí: ele preenche as caixas e não vincula os dois
+// cargos. Mudar o Técnico depois não mexe em quem copiou dele; o que veio
+// junto pode ser ajustado antes de salvar. Herdar de verdade criaria uma
+// relação invisível entre cargos, e ninguém entenderia por que um cargo mudou
+// sozinho.
+// ============================================================
+function renderCopiarPermissoesHtml(cargo, prefixo) {
+    // O próprio cargo fica fora da lista: copiar de si mesmo não faz nada.
+    const outros = (typeof listarCargos === 'function' ? listarCargos() : [])
+        .filter(c => c && c !== cargo)
+        .sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'));
+
+    if (!outros.length) return '';
+
+    const opcoes = outros.map(c =>
+        '<option value="' + escaparAtributo(c) + '">' + escaparTexto(c) + '</option>'
+    ).join('');
+
+    return '<div class="form-group" style="margin-bottom:1rem;">'
+        + '<label class="form-label" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.25rem;">'
+        + 'Copiar permissões de outro cargo'
+        + '</label>'
+        + '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem;">'
+        + 'Marca as caixas abaixo com o que o cargo escolhido tem. Depois é só ajustar.'
+        + '</div>'
+        + '<select class="form-select" id="' + prefixo + 'copiar-de"'
+        + ' onchange="copiarPermissoesDeCargo(this.value, \'' + prefixo + '\'); this.value = \'\';"'
+        + ' style="width:100%;padding:0.5rem 0.7rem;font-size:0.82rem;border:2px solid var(--border-color);'
+        + 'border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);">'
+        + '<option value="">— Selecione um cargo para copiar —</option>'
+        + opcoes
+        + '</select>'
+        + '</div>';
+}
+window.renderCopiarPermissoesHtml = renderCopiarPermissoesHtml;
+
+// Marca as caixas com o que o cargo de origem tem, e DESMARCA o resto: copiar
+// precisa deixar o formulário igual ao original, senão o que já estava
+// marcado antes se somaria à cópia e o resultado não seria nem um nem outro.
+function copiarPermissoesDeCargo(cargoOrigem, prefixo) {
+    if (!cargoOrigem) return;
+    const permissoes = permissoesDoCargo(cargoOrigem) || [];
+    const tem = new Set(permissoes);
+    const todas = PERMISSOES_MODULOS.concat(PERMISSOES_NOTIFICACAO);
+
+    let marcadas = 0;
+    todas.forEach(([chave]) => {
+        const el = document.getElementById(prefixo + chave);
+        if (!el) return;
+        // '*' é acesso total: quem copia de um cargo assim recebe tudo.
+        el.checked = tem.has('*') || tem.has(chave);
+        if (el.checked) marcadas++;
+    });
+
+    // "Responsável por obra" não é permissão, mas acompanha o cargo — copiar
+    // sem ele deixaria o cargo novo fora da lista de responsáveis sem aviso.
+    const caixaResp = document.getElementById(prefixo + 'responsavel_obra');
+    if (caixaResp && typeof cargoEhResponsavelPorObra === 'function') {
+        caixaResp.checked = cargoEhResponsavelPorObra(cargoOrigem);
+    }
+
+    if (typeof showToast === 'function') {
+        showToast(marcadas + ' permissão(ões) copiada(s) de "' + cargoOrigem + '". Ajuste o que precisar antes de salvar.', 'success');
+    }
+}
+window.copiarPermissoesDeCargo = copiarPermissoesDeCargo;
+
+// Escapes locais: este arquivo tem várias funções de escape espalhadas, e
+// depender de qual delas já foi definida neste ponto do arquivo é frágil.
+function escaparTexto(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escaparAtributo(t) {
+    return escaparTexto(t).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderCargoPermissoesHtml(cargo, prefixo, opcoes) {
     const atuais = (opcoes && opcoes.vazio) ? [] : permissoesDoCargo(cargo);
     const itens = PERMISSOES_MODULOS.map(([chave, rotulo]) => (
@@ -490,6 +572,7 @@ function renderCargoPermissoesHtml(cargo, prefixo, opcoes) {
     )).join('');
 
     return renderCargoResponsavelHtml(cargo, prefixo)
+        + renderCopiarPermissoesHtml(cargo, prefixo)
         + '<div class="form-group" style="margin-bottom:1.25rem;">'
         + '<label class="form-label" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.4rem;">Permissões do Cargo</label>'
         + '<div class="cargo-perms-box">' + itens + '</div>'
@@ -1005,13 +1088,18 @@ function usuarioPodeAceitarProrrogacao() {
 }
 window.usuarioPodeAceitarProrrogacao = usuarioPodeAceitarProrrogacao;
 
-// DIGITAR o código é privilégio; BIPAR não. Sem esta permissão o botão
-// "Adicionar" some e o que for teclado à mão no campo é descartado — mas o
-// leitor físico de código de barras e a câmera continuam adicionando sozinhos
-// (ver lwnObservarBipagem, modo "somenteLeitor").
+// NINGUÉM digita código de bipagem — nem quem administra o sistema.
+//
+// Isto era uma permissão de cargo ("bipagem_manual"): quem a tivesse podia
+// teclar a TAG à mão. Ela saiu porque digitar derrota o propósito de bipar —
+// a TAG registrada deixa de ser prova de que a ferramenta estava ali. Agora
+// o código entra SÓ pela câmera ou pelo leitor físico.
+//
+// A função continua existindo (várias telas a consultam para montar o
+// campo) e agora responde sempre "não". Removê-la exigiria mexer em cinco
+// telas de bipagem para ganhar nada.
 function usuarioPodeDigitarBipagem() {
-    if (typeof usuarioTemPermissao !== 'function') return true;
-    return usuarioTemPermissao('bipagem_manual');
+    return false;
 }
 window.usuarioPodeDigitarBipagem = usuarioPodeDigitarBipagem;
 
@@ -2889,14 +2977,10 @@ function renderUsuariosTable(targetId) {
         badgeClass = 'badge-cargo';
         badgeStyle = `background: color-mix(in srgb, ${corCargo} 14%, transparent); color: ${corCargo}; font-weight:700; border:none;`;
 
-        // "Gerar Código" saiu daqui.
-        //
-        // Redefinir senha dependia de um administrador ler um número na tela e
-        // passar para a pessoa por telefone. Agora o próprio colaborador pede,
-        // na tela de login ("Esqueceu sua senha?"), e o código de 6 dígitos vai
-        // direto para o e-mail cadastrado dele — ninguém mais precisa
-        // intermediar, e o código não passa por WhatsApp.
-        const acoesHtml = '';
+        // A coluna "Ações" não existe mais nesta tabela. Ela tinha um botão só,
+        // o "Gerar Código", e ele saiu quando a redefinição de senha passou a
+        // ser feita pelo próprio colaborador na tela de login — o código de 6
+        // dígitos vai direto para o e-mail dele, sem ninguém intermediar.
 
         return `
             <tr>
@@ -2915,9 +2999,6 @@ function renderUsuariosTable(targetId) {
                     ${permissoesTexto}
                 </td>
                 <td><span class="badge ${u.ativo !== false ? 'badge-success' : 'badge-danger'}">${u.ativo !== false ? 'Ativo' : 'Inativo'}</span></td>
-                <td style="text-align: center; white-space:nowrap;">
-                    ${acoesHtml}
-                </td>
             </tr>
         `;
     }).join('');
@@ -9135,7 +9216,7 @@ const PERMISSOES_FORM = [
     ['gerenciar_os', 'gerenciar_os'],
     ['prorrogar_os', 'prorrogar_os'],
     ['aprovar_remanejamento', 'aprovar_remanejamento'],
-    ['bipagem_manual', 'bipagem_manual'],
+
     ['concluidos', 'concluidos'],
     ['certificados', 'certificados'],
     ['baias', 'baias'],
@@ -14162,10 +14243,9 @@ function showRemMode(mode) {
 // ============================================================
 // CAMPO DE BIPAGEM DO REMANEJAMENTO
 //
-// Mesma regra da Retirada e da Devolutiva: DIGITAR o código é permissão
-// ("bipagem_manual") — BIPAR não é. Sem a permissão, o botão "Adicionar" não
-// existe e o que for teclado à mão é descartado, mas o LEITOR FÍSICO continua
-// escrevendo no campo e a ferramenta entra sozinha, igual à câmera.
+// Mesma regra da Retirada e da Devolutiva: NINGUÉM digita o código. O botão
+// "Adicionar" não existe e o que for teclado à mão é descartado; o que entra
+// é o LEITOR FÍSICO (que escreve no campo como um teclado) e a câmera.
 //
 // O Enter não vem mais de um `onkeydown` no HTML: quem confirma a leitura é
 // lwnObservarBipagem (via remLigarLeitor), que é justamente quem sabe separar

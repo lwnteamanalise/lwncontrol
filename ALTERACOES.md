@@ -55,6 +55,10 @@
 38. Logs: o que faltava passou a ser registrado
 39. Recuperação de senha: o código vai para o e-mail
 40. Ajustes de 04/09 (segunda rodada)
+41. O rosto agora é cadastrado **no site**, não no aparelho
+42. E-mail: o que faltava era o remetente
+43. Redefinição de senha: e-mail não cadastrado é recusado
+44. Ajustes de 08/09
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -989,3 +993,105 @@ menos numa faixa de ~6px à direita (a barra de rolagem da página de trás) —
 scroll do fundo agora é travado enquanto o termo está aberto. E tudo **cabe sem
 rolar**: o cartão virou três faixas (topo, miolo rolável, rodapé), com o check
 "Estou de acordo" e o "Confirmar" sempre à vista, no desktop e no celular.
+
+---
+
+## 41. O rosto agora é cadastrado **no site**, não no aparelho (08/09)
+
+A versão anterior usava o **Face ID do celular** (WebAuthn): a credencial ficava
+presa àquele telefone. Servia para a pessoa entrar no próprio aparelho — e não
+era isso que o almoxarifado precisava.
+
+Agora o rosto é cadastrado **no sistema**. Um micro na bancada, várias pessoas:
+cada uma chega, olha para a câmera, o sistema descobre **quem é** e entra na
+conta dela; ela sai, a próxima olha e entra na dela. **Como uma catraca.**
+
+**Como o rosto vira número.** O navegador detecta o rosto, alinha pelos 68
+pontos e gera um **descritor**: 128 números que descrevem aquele rosto. É só
+isso que trafega e é guardado — **não há foto no banco**, e não se remonta um
+rosto a partir dos 128 números.
+
+**Como se compara.** Distância entre descritores, com duas exigências:
+
+| | |
+|---|---|
+| distância < **0,48** | mais rígido que o padrão de 0,6 da biblioteca — errar aqui é entrar na conta de outra pessoa |
+| 2º colocado **0,06 atrás** | sem isso, dois rostos parecidos dariam empate e o desempate seria por sorte |
+
+Não batendo, o sistema diz *"não consegui ter certeza de quem é"* e manda usar
+a senha — preferir o "não sei" ao palpite.
+
+**O cadastro guarda 5 leituras**, em instantes diferentes, para aguentar
+variação de luz, óculos e ângulo. E **um rosto só pode pertencer a uma pessoa**:
+tentar cadastrar um rosto que já é de outro colaborador é recusado com o nome
+de quem já o tem.
+
+### A piscada
+
+Antes de aceitar qualquer leitura, o navegador **exige uma piscada**. Ele
+acompanha a abertura dos olhos quadro a quadro e só libera quando ela cai e
+volta. Isso derruba foto impressa e foto na tela do celular.
+
+> **Limitação, escrita de propósito:** isso **não** derruba um vídeo da pessoa
+> piscando. Reconhecimento facial por câmera comum é conveniência, não barreira
+> forte. Para um site interno, com todo acesso registrado nos Logs, é adequado —
+> mas a senha continua existindo, e é ela que protege o que for sensível.
+
+A biblioteca (`@vladmandic/face-api`) e os modelos vêm do jsDelivr: a primeira
+leitura baixa ~4 MB, as seguintes não baixam nada.
+
+---
+
+## 42. E-mail: o que faltava era o remetente (08/09)
+
+As notificações não chegavam por **uma** variável em branco: `OUTLOOK_REMETENTE`,
+a caixa de onde os e-mails saem. Sem ela o módulo ficava inerte de propósito, e
+a redefinição de senha respondia *"Não foi possível enviar o e-mail agora"* —
+que era literalmente verdade.
+
+Configurado `luis@lwnengenharia.com.br` como remetente (não existe caixa
+`naoresponda@` no tenant — vale criar uma depois e trocar a variável) e
+`APP_URL` como `https://lwncontrol.vercel.app`. Os **sete** tipos de aviso foram
+enviados de verdade e chegaram.
+
+**Ajuste no envio:** com **um** destinatário, ele vai no "Para" e mais ninguém
+recebe. A versão anterior mandava tudo em cópia oculta com a caixa remetente no
+"Para" — ou seja, o dono da caixa recebia uma cópia de cada aviso do sistema
+inteiro. Com vários destinatários a cópia oculta continua, para ninguém ver a
+lista dos outros.
+
+---
+
+## 43. Redefinição de senha: e-mail não cadastrado é recusado (08/09)
+
+A versão anterior respondia *"se este cadastro existir, enviamos o código"*
+mesmo para e-mail inexistente — é a prática que evita a rota virar um jeito de
+descobrir quem trabalha na empresa.
+
+Como o site é interno, só de funcionários, o silêncio custava mais do que
+protegia: quem digitava o e-mail pessoal por engano ficava esperando um código
+que nunca vinha. Agora a resposta é direta:
+
+> Este e-mail ou CPF não está cadastrado no sistema. Confira o que você digitou
+> ou fale com o responsável para a inclusão do seu cadastro.
+
+---
+
+## 44. Ajustes de 08/09
+
+**Copiar permissões de outro cargo.** Um select no topo do cargo marca as caixas
+com o que o cargo escolhido tem — e **desmarca o resto**, para o resultado ser o
+original e não uma mistura. Ele **copia e para por aí**: mudar o Técnico depois
+não mexe em quem copiou dele. Herdar de verdade criaria uma relação invisível
+entre cargos, e ninguém entenderia por que um cargo mudou sozinho.
+
+**"Digitar/colar código na bipagem" foi removida.** Digitar derrota o propósito
+de bipar — a TAG registrada deixa de ser prova de que a ferramenta estava ali.
+Agora o código entra **só pela câmera ou pelo leitor**, para todo mundo,
+inclusive quem administra o sistema.
+
+**A coluna "Ações" saiu de Colaboradores.** Ela existia só para o botão "Gerar
+Código", que já tinha sido removido — desde então era uma coluna vazia.
+
+**O botão do Face ID voltou para o canto inferior direito** no desktop. No
+celular ele continua mais acima, porque lá existe uma barra de abas fixa embaixo.

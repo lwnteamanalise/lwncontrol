@@ -220,49 +220,36 @@ async function fazerLogin(email, senha, manterConectado) {
 }
 
 // ======================================================
-// ENTRAR COM O ROSTO (Face ID / Windows Hello)
+// ENTRAR COM O ROSTO — A CATRACA
 //
-// Quem reconhece o rosto é o próprio aparelho, pelo padrão WebAuthn. Aqui só
-// acontecem três coisas: pedir um desafio ao servidor, mandar o aparelho
-// assinar esse desafio (é nesse momento que ele pede o rosto) e devolver a
-// assinatura para conferência.
+// O rosto é cadastrado NO SITE (pelo botão flutuante, dentro do sistema), não
+// no aparelho. É essa a diferença que faz isto servir para o micro da bancada
+// do almoxarifado: uma pessoa chega, olha para a câmera, o sistema descobre
+// QUEM é e entra na conta dela; ela sai, a próxima olha e entra na conta dela.
 //
-// Nenhuma foto é capturada, enviada ou guardada — o segredo que prova a
-// identidade nunca sai do aparelho. O cadastro do rosto é feito DENTRO do
-// sistema, no botão flutuante do canto inferior direito.
+// Nenhum e-mail é digitado antes — não perguntamos quem é, o rosto responde.
 //
-// O botão só aparece em navegador que suporta WebAuthn: em qualquer outro,
-// ele seria um botão que não faz nada.
+// O que trafega são os 128 números que descrevem o rosto (ver face-lwn.js),
+// nunca a imagem. E o navegador exige uma PISCADA antes de aceitar a leitura,
+// o que derruba uma foto impressa ou na tela.
 // ======================================================
-function faceIdSuportado() {
-    return typeof window.PublicKeyCredential === 'function'
-        && !!(navigator.credentials && navigator.credentials.get);
-}
+let rostoStream = null;
 
-function faceIdB64url(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let bin = '';
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function faceIdDeB64url(texto) {
-    const s = String(texto || '').replace(/-/g, '+').replace(/_/g, '/');
-    const bin = atob(s + '='.repeat((4 - s.length % 4) % 4));
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes.buffer;
+function rostoSuportado() {
+    return typeof window.LWNFace !== 'undefined'
+        && window.LWNFace.suportado()
+        && window.LWNFace.contextoSeguro();
 }
 
 function faceIdMostrarBotao() {
-    if (!faceIdSuportado()) return;
+    if (!rostoSuportado()) return;
     mostrarLinhaEntrarCom();
     const btn = document.getElementById('btnFaceId');
     if (!btn) return;
     btn.classList.add('visivel');
     if (!btn.dataset.ligado) {
         btn.dataset.ligado = '1';
-        btn.addEventListener('click', entrarComFaceId);
+        btn.addEventListener('click', entrarComRosto);
     }
 }
 
@@ -304,74 +291,89 @@ async function outlookMostrarBotao() {
     }
 }
 
-async function entrarComFaceId() {
-    const btn = document.getElementById('btnFaceId');
+// ------------------------------------------------------
+// A TELA DA CÂMERA
+// ------------------------------------------------------
+function rostoAbrirTela() {
+    document.getElementById('rostoOverlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'rosto-overlay';
+    overlay.id = 'rostoOverlay';
+    overlay.innerHTML = `
+        <div class="rosto-card">
+            <div class="rosto-titulo">Olhe para a câmera</div>
+            <video id="rostoVideo" playsinline muted></video>
+            <div class="rosto-passo" id="rostoPasso">Ligando a câmera...</div>
+            <button type="button" class="rosto-cancelar" id="rostoCancelar">Cancelar</button>
+        </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('rostoCancelar').onclick = rostoFechar;
+}
+
+// Fechar SEMPRE desliga a câmera: sem isto a luzinha continuaria acesa com o
+// popup já fora da tela, e ninguém confiaria no recurso.
+function rostoFechar() {
+    if (window.LWNFace) window.LWNFace.fecharCamera(rostoStream);
+    rostoStream = null;
+    document.getElementById('rostoOverlay')?.remove();
+}
+
+function rostoPasso(texto) {
+    const el = document.getElementById('rostoPasso');
+    if (el) el.textContent = texto;
+}
+
+async function entrarComRosto() {
     const errorEl = document.getElementById('loginError');
     const manterConectado = !!document.getElementById('loginRemember')?.checked;
-
     const mostrarErro = (texto) => {
         if (errorEl) { errorEl.textContent = texto; errorEl.style.display = 'block'; }
     };
     if (errorEl) errorEl.style.display = 'none';
-    btn?.classList.add('is-loading');
+
+    rostoAbrirTela();
 
     try {
-        const respOpc = await fetch(`${API_URL}/facial/entrada/opcoes`, { cache: 'no-store' });
-        const opc = await respOpc.json();
-        if (!respOpc.ok) throw new Error(opc.erro || `Erro ${respOpc.status}`);
+        await window.LWNFace.preparar(rostoPasso);
 
-        const credencial = await navigator.credentials.get({
-            publicKey: {
-                challenge: faceIdDeB64url(opc.desafio),
-                rpId: opc.rpId,
-                // Lista vazia de propósito: o aparelho oferece as credenciais
-                // que ele mesmo tem para este site, e é ele quem diz de quem
-                // é o rosto. Não perguntamos o e-mail antes.
-                allowCredentials: [],
-                // "required" é o que obriga o rosto (ou a digital): sem isso o
-                // aparelho poderia liberar só com um toque na tela.
-                userVerification: 'required',
-                timeout: 60000
-            }
+        const video = document.getElementById('rostoVideo');
+        if (!video) return;   // a pessoa cancelou enquanto os modelos carregavam
+        rostoStream = await window.LWNFace.abrirCamera(video);
+
+        const [descritor] = await window.LWNFace.ler(video, {
+            amostras: 1,
+            exigirPiscada: true,
+            aoProgredir: rostoPasso
         });
 
-        if (!credencial) throw new Error('O aparelho não devolveu nenhuma credencial.');
+        window.LWNFace.fecharCamera(rostoStream);
+        rostoStream = null;
+        rostoPasso('Identificando...');
 
-        const resp = await fetch(`${API_URL}/facial/entrada`, {
+        const resp = await fetch(`${API_URL}/rosto/entrar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                credencial_id: credencial.id,
-                client_data: faceIdB64url(credencial.response.clientDataJSON),
-                authenticator_data: faceIdB64url(credencial.response.authenticatorData),
-                assinatura: faceIdB64url(credencial.response.signature),
-                manter_conectado: manterConectado
-            })
+            body: JSON.stringify({ descritor, manter_conectado: manterConectado })
         });
         const dados = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
 
-        btn?.classList.remove('is-loading');
+        rostoFechar();
 
         // O reconhecimento é rápido demais para dar tempo de ler qualquer
-        // coisa, e um aparelho pode ter mais de um rosto cadastrado. Antes de
-        // abrir o sistema, o usuário confirma em qual perfil está entrando.
-        faceIdConfirmarPerfil(dados, manterConectado);
+        // coisa, e num micro compartilhado a conta errada seria um estrago
+        // silencioso. Antes de abrir o sistema, a pessoa confirma quem é.
+        rostoConfirmarPerfil(dados, manterConectado);
 
     } catch (err) {
         console.error('Erro ao entrar com o rosto:', err);
-        btn?.classList.remove('is-loading');
-        const nome = err?.name || '';
-        mostrarErro(
-            nome === 'NotAllowedError'   ? 'Reconhecimento cancelado ou tempo esgotado. Tente novamente.'
-            : nome === 'NotSupportedError' ? 'Este aparelho não tem reconhecimento facial disponível.'
-            : nome === 'SecurityError'     ? 'O reconhecimento facial só funciona em conexão segura (https).'
-            : (err?.message || 'Não foi possível entrar com o reconhecimento facial.')
-        );
+        rostoFechar();
+        mostrarErro(err.message || 'Não foi possível entrar com o reconhecimento facial.');
     }
 }
 
-function faceIdConfirmarPerfil(dados, manterConectado) {
+function rostoConfirmarPerfil(dados, manterConectado) {
     document.getElementById('facialConfirmOverlay')?.remove();
 
     const nome = dados?.usuario?.nome || 'Colaborador';
@@ -392,7 +394,7 @@ function faceIdConfirmarPerfil(dados, manterConectado) {
                     <path d="M8.8 16.2a4.6 4.6 0 0 0 6.4 0"/>
                 </svg>
             </span>
-            <h3>Olá, ${faceIdEscapar(nome)}!</h3>
+            <h3>Olá, ${rostoEscapar(nome)}!</h3>
             <p>Confirme que você está entrando no seu perfil.</p>
             <button class="signin-btn" id="facialConfirmBtn">
                 <span>Confirmar</span>
@@ -403,12 +405,12 @@ function faceIdConfirmarPerfil(dados, manterConectado) {
 
     document.getElementById('facialConfirmBtn').onclick = () => {
         overlay.remove();
-        faceIdEntrar(dados, manterConectado);
+        rostoEntrar(dados, manterConectado);
     };
     document.getElementById('facialConfirmCancelar').onclick = () => overlay.remove();
 }
 
-function faceIdEscapar(t) {
+function rostoEscapar(t) {
     return String(t == null ? '' : t)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -416,7 +418,7 @@ function faceIdEscapar(t) {
 
 // A partir daqui é exatamente o que fazerLogin() faz depois de a senha ser
 // aceita: a sessão é montada do mesmo jeito, e o app abre igual.
-function faceIdEntrar(dados, manterConectado) {
+function rostoEntrar(dados, manterConectado) {
     usuarioAtual = dados.usuario;
     permissoesAtuais = Array.isArray(dados.permissoes) ? dados.permissoes : [];
 

@@ -401,6 +401,44 @@ html[data-theme="dark"]  .logo-light { display:none; }
 }
 .outlook-btn:active { transform: scale(.96); }
 
+/* ============ A TELA DA CÂMERA (entrar com o rosto) ============
+   Ela cobre a página inteira: o gesto é "olhe para a câmera", e qualquer
+   coisa em volta só distrai de um passo que dura três segundos. */
+.rosto-overlay {
+  position: fixed; inset: 0; z-index: 9100;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0, 0, 0, .72);
+  backdrop-filter: blur(4px);
+}
+.rosto-card {
+  width: 100%; max-width: 400px; text-align: center;
+  max-height: 100dvh; overflow-y: auto;
+  background: var(--card-bg); border: 1px solid var(--field-border);
+  border-radius: 22px; padding: 24px 22px 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .35);
+}
+.rosto-card .rosto-titulo {
+  font-size: 17px; font-weight: 800; color: var(--text-title); margin-bottom: 14px;
+}
+.rosto-card video {
+  width: 100%; border-radius: 16px; display: block; background: #000;
+  aspect-ratio: 4 / 3; object-fit: cover;
+  transform: scaleX(-1);   /* espelhado: a pessoa se vê como num espelho */
+  /* Numa tela baixa (notebook antigo, janela pequena) o vídeo encolhe para o
+     botão Cancelar continuar visível — sem isto o cartão passava da tela. */
+  max-height: calc(100dvh - 210px);
+}
+.rosto-card .rosto-passo {
+  margin-top: 14px; min-height: 20px;
+  font-size: 14px; font-weight: 600; color: var(--text-welcome);
+}
+.rosto-card .rosto-cancelar {
+  display: block; width: 100%; margin-top: 14px; padding: 8px;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  color: var(--back-color); font-size: 13px; font-weight: 600;
+}
+.rosto-card .rosto-cancelar:hover { color: var(--back-hover); }
+
 /* ============ CONFIRMAÇÃO DA ENTRADA POR ROSTO ============
    O reconhecimento é rápido demais para dar tempo de ler qualquer coisa, e
    um aparelho compartilhado pode ter mais de um rosto cadastrado. Este passo

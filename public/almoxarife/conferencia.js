@@ -1715,15 +1715,16 @@ window.confPintarGridDaSessao = confPintarGridDaSessao;
 window.abrirConferenciaOS = abrirConferenciaOS;
 
 // ============================================================
-// CAMPO DE BIPAGEM — DIGITAR É PERMISSÃO, BIPAR NÃO
+// CAMPO DE BIPAGEM — SÓ CÂMERA E LEITOR, NUNCA DIGITAÇÃO
 //
-// Sem "bipagem_manual" o botão "Adicionar" não aparece e nada do que for
-// TECLADO À MÃO entra no campo. O que continua funcionando é a BIPAGEM: o
-// leitor físico de código de barras escreve no campo e a ferramenta é
-// adicionada sozinha, igual à câmera do celular.
+// O botão "Adicionar" não aparece e nada do que for TECLADO À MÃO entra no
+// campo. O que funciona é a BIPAGEM: o leitor físico de código de barras
+// escreve no campo e a ferramenta é adicionada sozinha, igual à câmera do
+// celular. Digitar derrota o propósito de bipar — a TAG registrada deixa de
+// ser prova de que a ferramenta estava ali.
 //
-// Por isso o campo fica habilitado mesmo sem a permissão: um leitor físico é
-// um teclado, e num campo `disabled`/`readonly` (como era antes) ele não
+// Por isso o campo fica HABILITADO mesmo sem aceitar digitação: um leitor
+// físico é um teclado, e num campo `disabled`/`readonly` (como era antes) ele não
 // escrevia — quem não podia digitar também não conseguia bipar no computador.
 // Quem filtra o que é leitura e o que é digitação é lwnObservarBipagem.
 //

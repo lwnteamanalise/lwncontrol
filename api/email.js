@@ -99,15 +99,29 @@ async function enviarEmail({ para, assunto, html, texto }) {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                message: {
-                    subject: assunto,
-                    body: { contentType: 'HTML', content: html },
-                    // Cada destinatário em cópia oculta: um aviso de OS não é
-                    // uma conversa, e ninguém precisa ver a lista dos outros.
-                    toRecipients: [{ emailAddress: { address: REMETENTE } }],
-                    bccRecipients: destinos.map(e => ({ emailAddress: { address: e } }))
-                },
-                saveToSentItems: true
+                message: Object.assign(
+                    {
+                        subject: assunto,
+                        body: { contentType: 'HTML', content: html }
+                    },
+                    // COM UM DESTINATÁRIO, ele vai no "Para" e mais ninguém
+                    // recebe. A maioria dos avisos é assim (a solicitação de
+                    // OS vai só para o responsável), e a versão anterior
+                    // mandava tudo em cópia oculta com a CAIXA REMETENTE no
+                    // "Para" — ou seja, o dono da caixa recebia uma cópia de
+                    // cada aviso do sistema inteiro.
+                    destinos.length === 1
+                        ? { toRecipients: [{ emailAddress: { address: destinos[0] } }] }
+                    // COM VÁRIOS, a cópia oculta continua: um aviso de OS não
+                    // é uma conversa, e ninguém precisa ver a lista dos outros.
+                        : {
+                            toRecipients: [{ emailAddress: { address: REMETENTE } }],
+                            bccRecipients: destinos.map(e => ({ emailAddress: { address: e } }))
+                        }
+                ),
+                // Sem guardar em "Itens Enviados": são avisos automáticos, e
+                // encher a caixa de quem empresta o endereço não ajuda ninguém.
+                saveToSentItems: false
             })
         });
 

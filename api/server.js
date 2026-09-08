@@ -1099,14 +1099,19 @@ app.post("/api/senha/solicitar-codigo", async (req, res) => {
 
         const usuario = await acharUsuarioPorIdentificador(identificador);
 
-        // Não existe: responde como se tivesse dado certo (ver o comentário do
-        // topo). Nenhum e-mail é enviado.
+        // NÃO EXISTE: a resposta diz isso na cara.
+        //
+        // A versão anterior respondia "se existir, enviamos" mesmo para
+        // cadastro inexistente — é a prática que evita a rota virar um jeito
+        // de descobrir quem trabalha aqui. Mas o site é interno, só de
+        // funcionários, e o silêncio custava caro na prática: quem digitava o
+        // e-mail pessoal por engano ficava esperando um código que nunca ia
+        // chegar, sem entender o motivo. Aqui a clareza vale mais.
         if (!usuario) {
-            return res.json({
-                sucesso: true,
-                enviado: true,
-                email_mascarado: null,
-                mensagem: "Se este cadastro existir, o código foi enviado para o e-mail cadastrado."
+            return res.status(404).json({
+                erro: "Este e-mail ou CPF não está cadastrado no sistema. "
+                    + "Confira o que você digitou ou fale com o responsável para a inclusão do seu cadastro.",
+                nao_cadastrado: true
             });
         }
 
@@ -1229,10 +1234,10 @@ app.post("/api/senha/redefinir", async (req, res) => {
         }
 
         const usuario = await acharUsuarioPorIdentificador(identificador);
-        // Mensagem única para "não existe" e "código errado": separá-las diria
-        // a quem chuta se aquele cadastro existe.
         const recusa = { erro: "Código inválido, expirado ou já utilizado." };
-        if (!usuario) return res.status(400).json(recusa);
+        if (!usuario) {
+            return res.status(404).json({ erro: "Este e-mail ou CPF não está cadastrado no sistema." });
+        }
 
         const valido = await pool.query(`
             SELECT id FROM codigos_recuperacao
@@ -1437,246 +1442,139 @@ app.post("/api/login", async (req, res) => {
 
 
 // ============================================================
-// ENTRADA POR RECONHECIMENTO FACIAL (Face ID / Windows Hello)
+// RECONHECIMENTO FACIAL DO SITE — A "CATRACA"
 //
-// Nada de foto trafega por aqui, e o servidor nunca vê o rosto de ninguém.
-// Quem faz o reconhecimento é o PRÓPRIO APARELHO — o Face ID do iPhone, o
-// Windows Hello, o leitor do Android —, exatamente como acontece quando ele
-// desbloqueia um app de banco. O padrão é o WebAuthn.
+// Isto é diferente do Face ID do aparelho (WebAuthn, mais abaixo). Lá, quem
+// reconhece é o celular, e a credencial fica presa NAQUELE aparelho: serve
+// para a pessoa entrar no próprio telefone, não para um computador
+// compartilhado do almoxarifado.
 //
-// Como funciona, em duas etapas:
+// Aqui o rosto é cadastrado NO SITE. Um micro na bancada, várias pessoas: cada
+// uma chega, mostra o rosto, o sistema descobre QUEM é e entra. A pessoa sai,
+// a próxima mostra o rosto e entra na conta dela. Igual a uma catraca.
 //
-//   CADASTRO   O aparelho gera um par de chaves preso ao rosto do dono e
-//              manda para cá SÓ A CHAVE PÚBLICA. Ela não serve para
-//              reconstruir nada: é só o que permite conferir assinaturas.
+// COMO O ROSTO VIRA NÚMERO
+// O navegador detecta o rosto, alinha pelos 68 pontos do rosto e gera um
+// DESCRITOR: 128 números que descrevem aquele rosto. É só isso que trafega e
+// é guardado — não há foto no banco, e não dá para remontar o rosto a partir
+// dos 128 números.
 //
-//   ENTRADA    O servidor manda um desafio aleatório. O aparelho pede o
-//              rosto, e só se ele bater é que assina o desafio com a chave
-//              privada — que nunca sai do aparelho. Aqui a assinatura é
-//              conferida contra a chave pública guardada.
+// COMO SE COMPARA
+// Distância euclidiana entre descritores. Rostos da mesma pessoa ficam perto
+// (≈0,3); pessoas diferentes ficam longe (≈0,8). Duas exigências, não uma:
 //
-// Por que assim, e não "tirar uma selfie e comparar": comparar imagem no
-// servidor significaria guardar biometria de colaborador num banco de dados,
-// e cairia com uma foto impressa. Deste jeito o segredo nunca sai do celular,
-// e um rosto errado nem chega a produzir assinatura.
+//   1. a menor distância precisa ser < LIMITE (0,48 — mais rígido que o
+//      padrão de 0,6 da biblioteca, porque errar aqui é entrar na conta de
+//      OUTRA pessoa);
+//   2. o segundo colocado precisa estar MARGEM atrás. Sem isso, dois irmãos
+//      cadastrados dariam empate técnico e o desempate seria por sorte.
 //
-// O desafio é gravado no banco com validade curta e some depois de usado, o
-// que impede alguém de repetir uma assinatura capturada antes (replay).
+// LIMITAÇÃO QUE PRECISA ESTAR ESCRITA
+// Reconhecimento facial por câmera comum não distingue um rosto de uma FOTO
+// de rosto com total segurança. O navegador exige uma piscada antes de
+// aceitar a leitura (ver face-lwn.js), o que derruba a foto impressa, mas não
+// um vídeo. Para o almoxarifado isto é adequado — é conveniência num site
+// interno, com todo acesso registrado nos Logs. Não é a barreira que protege
+// o que for realmente sensível; para isso continua existindo a senha.
 // ============================================================
-let _facialTabelasOk = false;
-async function garantirTabelasFacial() {
-    if (_facialTabelasOk) return;
+const ROSTO_LIMITE = 0.48;   // distância máxima para aceitar
+const ROSTO_MARGEM = 0.06;   // vantagem mínima sobre o segundo colocado
+const ROSTO_DIMENSOES = 128;
 
+let _rostoTabelaOk = false;
+async function garantirTabelaRostos() {
+    if (_rostoTabelaOk) return;
     await pool.query(`
-        CREATE TABLE IF NOT EXISTS usuario_credenciais (
-            id             SERIAL PRIMARY KEY,
-            usuario_id     INTEGER NOT NULL,
-            credencial_id  TEXT NOT NULL UNIQUE,
-            chave_publica  TEXT NOT NULL,      -- SPKI em base64
-            contador       BIGINT DEFAULT 0,
-            apelido        VARCHAR(180),
-            user_agent     TEXT,
-            criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            ultimo_uso     TIMESTAMP
-        )
-    `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_credenciais_usuario ON usuario_credenciais (usuario_id)`);
-
-    // Um desafio serve uma vez só e por pouco tempo.
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS webauthn_desafios (
+        CREATE TABLE IF NOT EXISTS usuario_rostos (
             id         SERIAL PRIMARY KEY,
-            desafio    TEXT NOT NULL UNIQUE,
-            usuario_id INTEGER,
-            finalidade VARCHAR(20) NOT NULL,   -- 'cadastro' | 'entrada'
-            criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            usuario_id INTEGER NOT NULL,
+            descritor  JSONB NOT NULL,     -- os 128 números
+            apelido    VARCHAR(180),
+            criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ultimo_uso TIMESTAMP
         )
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_desafios_desafio ON webauthn_desafios (desafio)`);
-
-    _facialTabelasOk = true;
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_rostos_usuario ON usuario_rostos (usuario_id)`);
+    _rostoTabelaOk = true;
 }
 
-const FACIAL_DESAFIO_MINUTOS = 5;
-
-function b64url(buf) {
-    return Buffer.from(buf).toString('base64')
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// Um descritor válido é um vetor de 128 números finitos. Conferir aqui evita
+// gravar lixo que depois casaria com qualquer coisa (ou com nada).
+function descritorValido(v) {
+    return Array.isArray(v)
+        && v.length === ROSTO_DIMENSOES
+        && v.every(n => typeof n === 'number' && Number.isFinite(n));
 }
 
-function deB64url(txt) {
-    const s = String(txt || '').replace(/-/g, '+').replace(/_/g, '/');
-    return Buffer.from(s + '='.repeat((4 - s.length % 4) % 4), 'base64');
-}
-
-async function novoDesafio(finalidade, usuarioId) {
-    await garantirTabelasFacial();
-    // Um desafio velho nunca deve poder ser reaproveitado, então a limpeza
-    // acontece toda vez que um novo é criado — sem depender de rotina externa.
-    await pool.query(
-        `DELETE FROM webauthn_desafios WHERE criado_em < NOW() - INTERVAL '${FACIAL_DESAFIO_MINUTOS} minutes'`
-    );
-    const desafio = b64url(crypto.randomBytes(32));
-    await pool.query(
-        "INSERT INTO webauthn_desafios (desafio, usuario_id, finalidade) VALUES ($1,$2,$3)",
-        [desafio, usuarioId || null, finalidade]
-    );
-    return desafio;
-}
-
-// Consome o desafio: ele vale UMA vez. Devolve a linha se ainda era válido.
-async function consumirDesafio(desafio, finalidade) {
-    await garantirTabelasFacial();
-    const r = await pool.query(
-        `DELETE FROM webauthn_desafios
-          WHERE desafio = $1 AND finalidade = $2
-            AND criado_em >= NOW() - INTERVAL '${FACIAL_DESAFIO_MINUTOS} minutes'
-      RETURNING *`,
-        [String(desafio || ''), finalidade]
-    );
-    return r.rows[0] || null;
-}
-
-// O clientDataJSON diz o que o navegador realmente assinou. Conferir o desafio
-// e a origem aqui é o que impede uma assinatura obtida em outro site (ou numa
-// sessão antiga) de valer nesta.
-function conferirClientData(clientDataB64, desafioEsperado, tipoEsperado, origemPedido) {
-    let dados;
-    try {
-        dados = JSON.parse(deB64url(clientDataB64).toString('utf8'));
-    } catch (e) {
-        return { ok: false, erro: "Resposta do aparelho ilegível." };
+function distanciaEuclidiana(a, b) {
+    let soma = 0;
+    for (let i = 0; i < ROSTO_DIMENSOES; i++) {
+        const d = a[i] - b[i];
+        soma += d * d;
     }
-    if (dados.type !== tipoEsperado) {
-        return { ok: false, erro: "Tipo de operação inesperado." };
-    }
-    if (dados.challenge !== desafioEsperado) {
-        return { ok: false, erro: "Desafio inválido ou expirado. Tente novamente." };
-    }
-    // A origem precisa ser a do próprio site. Em desenvolvimento (localhost) a
-    // porta muda a toda hora, então ali basta ser localhost.
-    const origem = String(dados.origin || '');
-    const permitida = String(origemPedido || '');
-    const ehLocal = /^https?:\/\/localhost(:\d+)?$/.test(origem) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origem);
-    if (!ehLocal && permitida && origem !== permitida) {
-        return { ok: false, erro: "Origem não confere." };
-    }
-    return { ok: true, dados };
-}
-
-// O "rpId" é o domínio a que a credencial fica presa. Ele TEM de bater com o
-// domínio de onde a página foi servida, senão o navegador recusa antes mesmo
-// de pedir o rosto.
-function rpIdDoPedido(req) {
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0];
-    return host || 'localhost';
-}
-
-function origemDoPedido(req) {
-    const proto = String(req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http')).split(',')[0];
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0];
-    return `${proto}://${host}`;
+    return Math.sqrt(soma);
 }
 
 // ------------------------------------------------------------
-// GET /api/facial/cadastro/opcoes?usuario_id=1
-// O que o navegador precisa para pedir o rosto e gerar a chave.
-// ------------------------------------------------------------
-app.get("/api/facial/cadastro/opcoes", async (req, res) => {
-    try {
-        await garantirTabelasFacial();
-        const usuarioId = parseInt(req.query.usuario_id);
-        if (!Number.isInteger(usuarioId)) return res.status(400).json({ erro: "Usuário não informado." });
-
-        const u = await pool.query("SELECT id, nome, email, cpf FROM usuarios WHERE id = $1 AND ativo = TRUE", [usuarioId]);
-        if (!u.rows.length) return res.status(404).json({ erro: "Usuário não encontrado." });
-        const usuario = u.rows[0];
-
-        const jaTem = await pool.query(
-            "SELECT credencial_id FROM usuario_credenciais WHERE usuario_id = $1",
-            [usuarioId]
-        );
-
-        const desafio = await novoDesafio('cadastro', usuarioId);
-
-        res.json({
-            desafio,
-            rp: { id: rpIdDoPedido(req), name: "LWN Control" },
-            usuario: {
-                // O id do usuário para o WebAuthn é opaco: mandamos o id do
-                // banco em base64url, e não e-mail/CPF.
-                id: b64url(Buffer.from(String(usuario.id))),
-                name: usuario.email || usuario.cpf || String(usuario.id),
-                displayName: usuario.nome || 'Colaborador'
-            },
-            // Impede cadastrar duas vezes o mesmo aparelho para o mesmo usuário.
-            excluir: jaTem.rows.map(c => c.credencial_id)
-        });
-    } catch (err) {
-        console.error("ERRO: GET /api/facial/cadastro/opcoes:", err.message);
-        res.status(500).json({ erro: err.message });
-    }
-});
-
-// ------------------------------------------------------------
-// POST /api/facial/cadastro
-// body: { usuario_id, credencial_id, chave_publica, client_data, apelido }
+// POST /api/rosto/cadastrar { usuario_id, descritores: [[128], ...], apelido }
 //
-// `chave_publica` vem do próprio navegador, já em SPKI
-// (response.getPublicKey()) — é o formato que o Node lê direto, o que evita
-// ter de decodificar CBOR/COSE aqui dentro.
+// Vários descritores por cadastro, de propósito: a tela captura o rosto em
+// alguns instantes diferentes (com variação de ângulo e luz), e guardar todos
+// faz o reconhecimento aguentar a pessoa de óculos, de boné ou contra a
+// janela. A comparação depois usa a MENOR distância entre o rosto de agora e
+// qualquer uma das amostras.
 // ------------------------------------------------------------
-app.post("/api/facial/cadastro", async (req, res) => {
+app.post("/api/rosto/cadastrar", async (req, res) => {
     try {
-        await garantirTabelasFacial();
+        await garantirTabelaRostos();
         const b = req.body || {};
         const usuarioId = parseInt(b.usuario_id);
         if (!Number.isInteger(usuarioId)) return res.status(400).json({ erro: "Usuário não informado." });
-        if (!b.credencial_id || !b.chave_publica) {
-            return res.status(400).json({ erro: "O aparelho não devolveu a credencial." });
+
+        const descritores = (Array.isArray(b.descritores) ? b.descritores : []).filter(descritorValido);
+        if (!descritores.length) {
+            return res.status(400).json({ erro: "Nenhuma leitura de rosto válida foi enviada." });
         }
 
         const u = await pool.query("SELECT id, nome, cargo FROM usuarios WHERE id = $1 AND ativo = TRUE", [usuarioId]);
         if (!u.rows.length) return res.status(404).json({ erro: "Usuário não encontrado." });
         const usuario = u.rows[0];
 
-        // O desafio precisa ser o que ESTE servidor emitiu, há pouco, para
-        // este usuário.
-        let clientData;
-        try {
-            clientData = JSON.parse(deB64url(b.client_data).toString('utf8'));
-        } catch (e) {
-            return res.status(400).json({ erro: "Resposta do aparelho ilegível." });
-        }
-        const linhaDesafio = await consumirDesafio(clientData.challenge, 'cadastro');
-        if (!linhaDesafio || String(linhaDesafio.usuario_id) !== String(usuarioId)) {
-            return res.status(400).json({ erro: "Desafio inválido ou expirado. Tente de novo." });
-        }
-        const conferencia = conferirClientData(b.client_data, clientData.challenge, 'webauthn.create', origemDoPedido(req));
-        if (!conferencia.ok) return res.status(400).json({ erro: conferencia.erro });
+        // ESTE ROSTO JÁ É DE OUTRA PESSOA?
+        //
+        // Sem esta checagem, cadastrar o rosto de alguém que já está no sistema
+        // (por engano, ou de propósito) criaria duas contas com o mesmo rosto —
+        // e a catraca passaria a escolher entre elas por sorte.
+        const todos = await pool.query(`
+            SELECT r.usuario_id, r.descritor, u.nome
+              FROM usuario_rostos r
+              JOIN usuarios u ON u.id = r.usuario_id
+             WHERE r.usuario_id <> $1 AND u.ativo = TRUE
+        `, [usuarioId]);
 
-        // A chave precisa ser legível pelo Node — se não for, é melhor
-        // recusar agora do que descobrir na hora de entrar.
-        try {
-            crypto.createPublicKey({ key: deB64url(b.chave_publica), format: 'der', type: 'spki' });
-        } catch (e) {
-            return res.status(400).json({ erro: "O aparelho enviou uma chave em formato não suportado." });
+        for (const linha of todos.rows) {
+            const guardado = Array.isArray(linha.descritor) ? linha.descritor : null;
+            if (!descritorValido(guardado)) continue;
+            for (const novo of descritores) {
+                if (distanciaEuclidiana(novo, guardado) < ROSTO_LIMITE) {
+                    return res.status(409).json({
+                        erro: `Este rosto já está cadastrado para ${linha.nome}. `
+                            + `Se for a mesma pessoa, remova o cadastro anterior antes.`,
+                        conflito_com: linha.nome
+                    });
+                }
+            }
         }
 
-        await pool.query(`
-            INSERT INTO usuario_credenciais (usuario_id, credencial_id, chave_publica, apelido, user_agent)
-            VALUES ($1,$2,$3,$4,$5)
-            ON CONFLICT (credencial_id) DO UPDATE
-               SET chave_publica = EXCLUDED.chave_publica,
-                   usuario_id    = EXCLUDED.usuario_id,
-                   apelido       = EXCLUDED.apelido
-        `, [
-            usuarioId,
-            String(b.credencial_id),
-            String(b.chave_publica),
-            b.apelido ? String(b.apelido).slice(0, 180) : 'Este aparelho',
-            req.headers['user-agent'] || null
-        ]);
+        // Cadastrar de novo substitui o que havia: a pessoa mudou de óculos ou
+        // de barba e está refazendo a leitura, não somando outra cara.
+        await pool.query("DELETE FROM usuario_rostos WHERE usuario_id = $1", [usuarioId]);
+        for (const d of descritores) {
+            await pool.query(
+                "INSERT INTO usuario_rostos (usuario_id, descritor, apelido) VALUES ($1, $2::jsonb, $3)",
+                [usuarioId, JSON.stringify(d), b.apelido ? String(b.apelido).slice(0, 180) : null]
+            );
+        }
 
         await registrarLogServidor({
             usuario_id: usuario.id,
@@ -1685,138 +1583,97 @@ app.post("/api/facial/cadastro", async (req, res) => {
             acao: 'criar',
             modulo: 'seguranca',
             entidade: 'Reconhecimento facial',
-            descricao: `Cadastrou o reconhecimento facial neste aparelho`,
+            descricao: 'Cadastrou o rosto para entrar no sistema',
             detalhes: {
                 contexto: {
-                    'Aparelho': b.apelido || 'Este aparelho',
+                    'Leituras guardadas': String(descritores.length),
                     'Navegador': req.headers['user-agent'] || '—'
                 }
             }
         });
 
-        res.status(201).json({ sucesso: true });
+        res.status(201).json({ sucesso: true, leituras: descritores.length });
     } catch (err) {
-        console.error("ERRO: POST /api/facial/cadastro:", err.message);
+        console.error("ERRO: POST /api/rosto/cadastrar:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
 
 // ------------------------------------------------------------
-// GET /api/facial/entrada/opcoes
-// O desafio da entrada. Nenhum usuário é informado: quem diz de quem é o
-// rosto é a credencial que o aparelho devolver.
-// ------------------------------------------------------------
-app.get("/api/facial/entrada/opcoes", async (req, res) => {
-    try {
-        const desafio = await novoDesafio('entrada', null);
-        res.json({ desafio, rpId: rpIdDoPedido(req) });
-    } catch (err) {
-        console.error("ERRO: GET /api/facial/entrada/opcoes:", err.message);
-        res.status(500).json({ erro: err.message });
-    }
-});
-
-// ------------------------------------------------------------
-// POST /api/facial/entrada
-// body: { credencial_id, client_data, authenticator_data, assinatura,
-//         manter_conectado }
+// POST /api/rosto/entrar { descritor: [128], manter_conectado }
 //
-// A conferência é a mesma que qualquer servidor WebAuthn faz: a assinatura
-// tem de bater sobre (authenticatorData ‖ SHA-256(clientDataJSON)) usando a
-// chave pública guardada no cadastro.
+// Nenhum usuário é informado: é o rosto que diz quem é. Este é o ponto da
+// catraca — a pessoa só chega e olha para a câmera.
 // ------------------------------------------------------------
-app.post("/api/facial/entrada", async (req, res) => {
+app.post("/api/rosto/entrar", async (req, res) => {
     try {
-        await garantirTabelasFacial();
+        await garantirTabelaRostos();
         const b = req.body || {};
-        if (!b.credencial_id || !b.client_data || !b.authenticator_data || !b.assinatura) {
-            return res.status(400).json({ erro: "Resposta incompleta do aparelho." });
+        const alvo = b.descritor;
+        if (!descritorValido(alvo)) {
+            return res.status(400).json({ erro: "Leitura de rosto inválida. Tente de novo." });
         }
 
-        const cred = await pool.query(
-            "SELECT * FROM usuario_credenciais WHERE credencial_id = $1",
-            [String(b.credencial_id)]
-        );
-        if (!cred.rows.length) {
-            return res.status(401).json({ erro: "Este aparelho não tem reconhecimento facial cadastrado." });
-        }
-        const credencial = cred.rows[0];
-
-        let clientData;
-        try {
-            clientData = JSON.parse(deB64url(b.client_data).toString('utf8'));
-        } catch (e) {
-            return res.status(400).json({ erro: "Resposta do aparelho ilegível." });
-        }
-        const linhaDesafio = await consumirDesafio(clientData.challenge, 'entrada');
-        if (!linhaDesafio) {
-            return res.status(401).json({ erro: "Desafio inválido ou expirado. Tente novamente." });
-        }
-        const conferencia = conferirClientData(b.client_data, clientData.challenge, 'webauthn.get', origemDoPedido(req));
-        if (!conferencia.ok) return res.status(401).json({ erro: conferencia.erro });
-
-        const authData = deB64url(b.authenticator_data);
-        const hashClient = crypto.createHash('sha256').update(deB64url(b.client_data)).digest();
-        const assinado = Buffer.concat([authData, hashClient]);
-
-        let chave;
-        try {
-            chave = crypto.createPublicKey({ key: deB64url(credencial.chave_publica), format: 'der', type: 'spki' });
-        } catch (e) {
-            return res.status(500).json({ erro: "Credencial gravada em formato inválido. Cadastre o rosto de novo." });
+        const todos = await pool.query(`
+            SELECT r.id, r.usuario_id, r.descritor, u.nome
+              FROM usuario_rostos r
+              JOIN usuarios u ON u.id = r.usuario_id
+             WHERE u.ativo = TRUE
+        `);
+        if (!todos.rows.length) {
+            return res.status(404).json({ erro: "Nenhum rosto cadastrado ainda neste sistema." });
         }
 
-        // ES256 (curva P-256) devolve a assinatura em DER; RS256 é PKCS#1.
-        // `dsaEncoding: 'der'` cobre o primeiro e é ignorado no segundo.
-        const valida = crypto.verify(
-            'sha256',
-            assinado,
-            { key: chave, dsaEncoding: 'der' },
-            deB64url(b.assinatura)
-        );
-        if (!valida) {
-            return res.status(401).json({ erro: "Não foi possível confirmar o reconhecimento facial." });
+        // A menor distância POR PESSOA (cada uma tem várias amostras).
+        const porUsuario = new Map();
+        for (const linha of todos.rows) {
+            const guardado = Array.isArray(linha.descritor) ? linha.descritor : null;
+            if (!descritorValido(guardado)) continue;
+            const d = distanciaEuclidiana(alvo, guardado);
+            const atual = porUsuario.get(linha.usuario_id);
+            if (!atual || d < atual.distancia) {
+                porUsuario.set(linha.usuario_id, { distancia: d, nome: linha.nome, linhaId: linha.id });
+            }
         }
 
-        // Bit 0 do byte de flags: "o usuário estava presente". Bit 2: "o
-        // usuário foi verificado" — é ele que diz que o rosto (ou a digital)
-        // foi de fato conferido, e não só um toque no aparelho.
-        const flags = authData[32];
-        if (!(flags & 0x01)) {
-            return res.status(401).json({ erro: "O aparelho não confirmou a presença do usuário." });
-        }
-        if (!(flags & 0x04)) {
+        const ranking = Array.from(porUsuario.entries())
+            .map(([usuario_id, v]) => Object.assign({ usuario_id }, v))
+            .sort((a, b2) => a.distancia - b2.distancia);
+
+        const melhor = ranking[0];
+        const segundo = ranking[1];
+
+        if (!melhor || melhor.distancia >= ROSTO_LIMITE) {
             return res.status(401).json({
-                erro: "O aparelho não confirmou o reconhecimento facial (só a presença). Use a senha."
+                erro: "Rosto não reconhecido. Aproxime-se, melhore a luz e tente de novo — "
+                    + "ou entre com e-mail e senha.",
+                nao_reconhecido: true
             });
         }
 
-        // Contador anti-clonagem: um autenticador de verdade só avança. Vindo
-        // para trás, é sinal de credencial copiada — o acesso é recusado.
-        const contadorNovo = authData.readUInt32BE(33);
-        const contadorAtual = parseInt(credencial.contador) || 0;
-        if (contadorNovo !== 0 && contadorNovo <= contadorAtual) {
-            return res.status(401).json({ erro: "Credencial inconsistente. Cadastre o rosto novamente." });
+        // Empate técnico: preferir errar dizendo "não sei" a entrar na conta
+        // errada. Só acontece com rostos muito parecidos cadastrados juntos.
+        if (segundo && (segundo.distancia - melhor.distancia) < ROSTO_MARGEM) {
+            return res.status(409).json({
+                erro: "Não foi possível ter certeza de quem é. Entre com e-mail e senha desta vez "
+                    + "e refaça o cadastro do seu rosto depois.",
+                ambiguo: true
+            });
         }
 
         const u = await pool.query(
-            `SELECT id, nome, cpf, email, cargo, ativo, permissoes, senha,
-                    (to_jsonb(x) ->> 'foto') AS foto
-               FROM usuarios x WHERE x.id = $1`,
-            [credencial.usuario_id]
+            `SELECT id, nome, cpf, email, cargo, ativo, permissoes, senha
+               FROM usuarios WHERE id = $1`,
+            [melhor.usuario_id]
         );
         if (!u.rows.length || !u.rows[0].ativo) {
             return res.status(401).json({ erro: "Usuário inativo ou removido." });
         }
         const usuario = u.rows[0];
 
-        await pool.query(
-            "UPDATE usuario_credenciais SET contador = $1, ultimo_uso = CURRENT_TIMESTAMP WHERE id = $2",
-            [contadorNovo, credencial.id]
-        );
+        await pool.query("UPDATE usuario_rostos SET ultimo_uso = CURRENT_TIMESTAMP WHERE id = $1", [melhor.linhaId]);
 
         const permissoes = extrairPermissoes(usuario.permissoes);
-
         let senhaPadrao = false;
         try { senhaPadrao = await bcryptjs.compare(SENHA_PADRAO_CADASTRO, usuario.senha); } catch (e) { /* ignora */ }
 
@@ -1830,11 +1687,12 @@ app.post("/api/facial/entrada", async (req, res) => {
             acao: 'login',
             modulo: 'seguranca',
             entidade: 'Acesso',
-            descricao: `Entrou por reconhecimento facial`,
+            descricao: 'Entrou por reconhecimento facial',
             detalhes: {
                 contexto: {
-                    'Método': 'Reconhecimento facial (Face ID / Windows Hello)',
-                    'Aparelho': credencial.apelido || '—',
+                    'Método': 'Reconhecimento facial (rosto cadastrado no site)',
+                    'Confiança': (100 - Math.round(melhor.distancia / ROSTO_LIMITE * 100)) + '% de margem',
+                    'Distância': melhor.distancia.toFixed(3),
                     'Navegador': req.headers['user-agent'] || '—'
                 }
             }
@@ -1850,70 +1708,88 @@ app.post("/api/facial/entrada", async (req, res) => {
                 cargo: usuario.cargo,
                 ativo: usuario.ativo,
                 permissoes,
-                foto: usuario.foto || null,
                 senha_padrao: senhaPadrao
             },
             permissoes,
             senha_padrao: senhaPadrao,
             token,
-            mensagem: "Reconhecimento facial confirmado"
+            distancia: Number(melhor.distancia.toFixed(3))
         });
     } catch (err) {
-        console.error("ERRO: POST /api/facial/entrada:", err.message);
+        console.error("ERRO: POST /api/rosto/entrar:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
 
 // ------------------------------------------------------------
-// GET /api/facial/status?usuario_id=1  — o botão flutuante usa isto para
-// saber se mostra "Cadastrar" ou "Já cadastrado".
-// DELETE /api/facial/:id               — remover o rosto de um aparelho.
+// GET /api/rosto/status?usuario_id=1   — o botão flutuante usa isto
+// DELETE /api/rosto/:usuario_id        — apaga o rosto de alguém
 // ------------------------------------------------------------
-app.get("/api/facial/status", async (req, res) => {
+app.get("/api/rosto/status", async (req, res) => {
     try {
-        await garantirTabelasFacial();
+        await garantirTabelaRostos();
         const usuarioId = parseInt(req.query.usuario_id);
-        if (!Number.isInteger(usuarioId)) return res.json({ cadastrado: false, credenciais: [] });
+        const total = await pool.query("SELECT COUNT(*)::int AS n FROM usuario_rostos");
+        if (!Number.isInteger(usuarioId)) {
+            return res.json({ cadastrado: false, leituras: 0, total_no_sistema: total.rows[0].n });
+        }
         const r = await pool.query(
-            `SELECT id, apelido, criado_em, ultimo_uso FROM usuario_credenciais
-              WHERE usuario_id = $1 ORDER BY criado_em DESC`,
+            `SELECT COUNT(*)::int AS n, MIN(criado_em) AS desde, MAX(ultimo_uso) AS ultimo
+               FROM usuario_rostos WHERE usuario_id = $1`,
             [usuarioId]
         );
-        res.json({ cadastrado: r.rows.length > 0, credenciais: r.rows });
+        res.json({
+            cadastrado: r.rows[0].n > 0,
+            leituras: r.rows[0].n,
+            desde: r.rows[0].desde,
+            ultimo_uso: r.rows[0].ultimo,
+            total_no_sistema: total.rows[0].n
+        });
     } catch (err) {
-        console.error("ERRO: GET /api/facial/status:", err.message);
+        console.error("ERRO: GET /api/rosto/status:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
 
-app.delete("/api/facial/:id", async (req, res) => {
+app.delete("/api/rosto/:usuario_id", async (req, res) => {
     try {
-        await garantirTabelasFacial();
-        const r = await pool.query(
-            "DELETE FROM usuario_credenciais WHERE id = $1 RETURNING usuario_id, apelido",
-            [req.params.id]
-        );
-        if (!r.rows.length) return res.status(404).json({ erro: "Credencial não encontrada." });
+        await garantirTabelaRostos();
+        const usuarioId = parseInt(req.params.usuario_id);
+        if (!Number.isInteger(usuarioId)) return res.status(400).json({ erro: "Usuário inválido." });
 
-        const u = await pool.query("SELECT nome, cargo FROM usuarios WHERE id = $1", [r.rows[0].usuario_id]);
+        const r = await pool.query("DELETE FROM usuario_rostos WHERE usuario_id = $1 RETURNING id", [usuarioId]);
+        if (!r.rows.length) return res.status(404).json({ erro: "Este usuário não tem rosto cadastrado." });
+
+        const u = await pool.query("SELECT nome, cargo FROM usuarios WHERE id = $1", [usuarioId]);
         await registrarLogServidor({
-            usuario_id: r.rows[0].usuario_id,
+            usuario_id: usuarioId,
             usuario_nome: u.rows[0]?.nome,
             usuario_cargo: u.rows[0]?.cargo,
             acao: 'excluir',
             modulo: 'seguranca',
             entidade: 'Reconhecimento facial',
-            descricao: `Removeu o reconhecimento facial de um aparelho`,
-            detalhes: { contexto: { 'Aparelho': r.rows[0].apelido || '—' } }
+            descricao: 'Removeu o rosto cadastrado',
+            detalhes: { contexto: { 'Leituras apagadas': String(r.rows.length) } }
         });
 
-        res.json({ sucesso: true });
+        res.json({ sucesso: true, removidas: r.rows.length });
     } catch (err) {
-        console.error("ERRO: DELETE /api/facial:", err.message);
+        console.error("ERRO: DELETE /api/rosto:", err.message);
         res.status(500).json({ erro: err.message });
     }
 });
 
+// O RECONHECIMENTO FACIAL POR APARELHO (WebAuthn / Face ID do celular) FOI
+// REMOVIDO DAQUI.
+//
+// Ele prendia a credencial ao aparelho: servia para a pessoa entrar no
+// próprio telefone, e não para o micro compartilhado do almoxarifado — que é
+// o caso de uso real. No lugar dele entrou o reconhecimento do ROSTO
+// cadastrado no site (POST /api/rosto/*, mais acima), que identifica QUEM é a
+// pessoa em qualquer computador, como uma catraca.
+//
+// As tabelas usuario_credenciais e webauthn_desafios continuam no banco, sem
+// uso e sem custo. Apagá-las seria uma migração destrutiva por nada.
 // ============================================================
 // SESSÃO PERSISTENTE ("Mantenha-me conectado")
 //
