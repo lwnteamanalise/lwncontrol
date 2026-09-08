@@ -452,6 +452,259 @@ function rostoEntrar(dados, manterConectado) {
 }
 
 // ======================================================
+// ESQUECI MINHA SENHA — TUDO NA MESMA TELA
+//
+// Antes isto abria outra página (almoxarife/redefinir-senha.html). Sair do
+// login para voltar depois é uma viagem à toa: quem esqueceu a senha já está
+// no lugar certo. Agora é um pop-up em três passos, sem navegação nenhuma:
+//
+//   1. e-mail ou CPF   -> o servidor manda um código de 6 dígitos
+//   2. o código        -> conferido só no passo 3, junto com a senha
+//   3. a senha nova    -> pronto, volta para o login
+//
+// O identificador do passo 1 é guardado em memória e reenviado no passo 3: o
+// servidor precisa dele para saber de quem é o código, e pedir de novo à
+// pessoa seria repetição sem motivo.
+// ======================================================
+let senhaIdentificador = '';
+
+function abrirRecuperarSenha() {
+    document.getElementById('senhaOverlay')?.remove();
+    senhaIdentificador = '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'senha-overlay';
+    overlay.id = 'senhaOverlay';
+    overlay.innerHTML = `
+        <div class="senha-card">
+            <button type="button" class="senha-fechar" id="senhaFechar" aria-label="Fechar">
+                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+
+            <div class="senha-passos" id="senhaPassos">
+                <span class="senha-bolinha ativa"></span>
+                <span class="senha-bolinha"></span>
+                <span class="senha-bolinha"></span>
+            </div>
+
+            <h3 id="senhaTitulo">Esqueceu sua senha?</h3>
+            <p id="senhaSub">Informe seu e-mail ou CPF para receber um código.</p>
+
+            <div class="senha-msg" id="senhaMsg"></div>
+
+            <!-- PASSO 1 -->
+            <form id="senhaPasso1" autocomplete="on">
+                <div class="field">
+                    <label for="senhaIdent">E-MAIL OU CPF</label>
+                    <div class="field-row">
+                        <input type="text" id="senhaIdent" placeholder="email@lwnengenharia.com.br"
+                               autocomplete="username" autocapitalize="off" spellcheck="false">
+                    </div>
+                </div>
+                <button type="submit" class="signin-btn" id="senhaBtn1">
+                    <span class="spinner" id="senhaSpin1"></span>
+                    <span id="senhaLbl1">Enviar código</span>
+                </button>
+            </form>
+
+            <!-- PASSO 2 -->
+            <form id="senhaPasso2" style="display:none;" autocomplete="off">
+                <div class="field">
+                    <label for="senhaCodigo">CÓDIGO DE 6 DÍGITOS</label>
+                    <div class="field-row">
+                        <input type="text" id="senhaCodigo" placeholder="000000" inputmode="numeric"
+                               maxlength="6" autocomplete="one-time-code"
+                               style="letter-spacing:.35em; font-weight:700; text-align:center;">
+                    </div>
+                </div>
+                <button type="submit" class="signin-btn"><span>Continuar</span></button>
+                <button type="button" class="senha-link" id="senhaVoltar1">Não recebi o código</button>
+            </form>
+
+            <!-- PASSO 3 -->
+            <form id="senhaPasso3" style="display:none;" autocomplete="off">
+                <div class="field">
+                    <label for="senhaNova">NOVA SENHA</label>
+                    <div class="field-row">
+                        <input type="password" id="senhaNova" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="senhaConfirma">CONFIRMAR NOVA SENHA</label>
+                    <div class="field-row">
+                        <input type="password" id="senhaConfirma" placeholder="Digite a senha novamente" autocomplete="new-password">
+                    </div>
+                </div>
+                <button type="submit" class="signin-btn" id="senhaBtn3">
+                    <span class="spinner" id="senhaSpin3"></span>
+                    <span id="senhaLbl3">Redefinir senha</span>
+                </button>
+            </form>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById('senhaFechar').onclick = fecharRecuperarSenha;
+    overlay.addEventListener('click', e => { if (e.target === overlay) fecharRecuperarSenha(); });
+    document.getElementById('senhaPasso1').addEventListener('submit', senhaPedirCodigo);
+    document.getElementById('senhaPasso2').addEventListener('submit', senhaConferirCodigo);
+    document.getElementById('senhaPasso3').addEventListener('submit', senhaRedefinir);
+    document.getElementById('senhaVoltar1').onclick = () => senhaIrParaPasso(1);
+    document.getElementById('senhaCodigo').addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '');
+    });
+
+    // O que já estiver digitado no login vai junto — quem errou a senha
+    // costuma ter o e-mail ali na tela.
+    const jaDigitado = document.getElementById('loginEmailInput')?.value.trim();
+    if (jaDigitado) document.getElementById('senhaIdent').value = jaDigitado;
+    setTimeout(() => document.getElementById('senhaIdent').focus(), 80);
+}
+
+function fecharRecuperarSenha() {
+    document.getElementById('senhaOverlay')?.remove();
+    senhaIdentificador = '';
+}
+
+function senhaMensagem(texto, tipo) {
+    const el = document.getElementById('senhaMsg');
+    if (!el) return;
+    if (!texto) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.textContent = texto;
+    el.className = 'senha-msg ' + (tipo || 'erro');
+    el.style.display = 'block';
+}
+
+function senhaIrParaPasso(n, dados) {
+    for (const i of [1, 2, 3]) {
+        const f = document.getElementById('senhaPasso' + i);
+        if (f) f.style.display = (i === n) ? 'block' : 'none';
+    }
+    document.querySelectorAll('#senhaPassos .senha-bolinha').forEach((b, i) => {
+        b.classList.toggle('ativa', i === n - 1);
+        b.classList.toggle('feita', i < n - 1);
+    });
+
+    const titulo = document.getElementById('senhaTitulo');
+    const sub = document.getElementById('senhaSub');
+    if (n === 1) {
+        titulo.textContent = 'Esqueceu sua senha?';
+        sub.textContent = 'Informe seu e-mail ou CPF para receber um código.';
+        senhaMensagem(null);
+        setTimeout(() => document.getElementById('senhaIdent')?.focus(), 80);
+    } else if (n === 2) {
+        titulo.textContent = 'Digite o código';
+        sub.textContent = dados && dados.email
+            ? `Enviamos um código para ${dados.email}.`
+            : 'Enviamos um código para o e-mail cadastrado.';
+        setTimeout(() => document.getElementById('senhaCodigo')?.focus(), 80);
+    } else {
+        titulo.textContent = 'Nova senha';
+        sub.textContent = 'Escolha a senha que você vai usar a partir de agora.';
+        senhaMensagem(null);
+        setTimeout(() => document.getElementById('senhaNova')?.focus(), 80);
+    }
+}
+
+// PASSO 1 — quem é você
+async function senhaPedirCodigo(e) {
+    e.preventDefault();
+    const identificador = document.getElementById('senhaIdent').value.trim();
+    const btn = document.getElementById('senhaBtn1');
+    const spin = document.getElementById('senhaSpin1');
+    const lbl = document.getElementById('senhaLbl1');
+
+    if (!identificador) { senhaMensagem('Informe o seu e-mail ou CPF.'); return; }
+
+    senhaMensagem(null);
+    btn.classList.add('is-loading');
+    if (spin) spin.style.display = 'inline-block';
+    lbl.textContent = 'Enviando…';
+
+    try {
+        const resp = await fetch(`${API_URL}/senha/solicitar-codigo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identificador })
+        });
+        const dados = await resp.json();
+        if (!resp.ok) throw new Error(dados.erro || 'Não foi possível enviar o código.');
+
+        senhaIdentificador = identificador;
+        senhaIrParaPasso(2, { email: dados.email_mascarado });
+        senhaMensagem(
+            `Confira a sua caixa de entrada${dados.expira_em_minutos ? ` — o código vale por ${dados.expira_em_minutos} minutos` : ''}. `
+            + 'Se não estiver lá, veja no lixo eletrônico.',
+            'ok'
+        );
+    } catch (err) {
+        senhaMensagem(err.message);
+    } finally {
+        btn.classList.remove('is-loading');
+        if (spin) spin.style.display = 'none';
+        lbl.textContent = 'Enviar código';
+    }
+}
+
+// PASSO 2 — o código.
+//
+// Ele NÃO é conferido no servidor aqui: quem confere é o passo 3, junto com a
+// senha nova, num pedido só. Conferir antes gastaria o código (ele vale uma
+// vez), e a pessoa ficaria travada entre os dois passos.
+function senhaConferirCodigo(e) {
+    e.preventDefault();
+    const codigo = document.getElementById('senhaCodigo').value.trim();
+    if (codigo.length !== 6) {
+        senhaMensagem('Digite os 6 dígitos que chegaram no seu e-mail.');
+        return;
+    }
+    senhaIrParaPasso(3);
+}
+
+// PASSO 3 — a senha nova
+async function senhaRedefinir(e) {
+    e.preventDefault();
+    const codigo = document.getElementById('senhaCodigo').value.trim();
+    const nova = document.getElementById('senhaNova').value;
+    const confirma = document.getElementById('senhaConfirma').value;
+    const btn = document.getElementById('senhaBtn3');
+    const spin = document.getElementById('senhaSpin3');
+    const lbl = document.getElementById('senhaLbl3');
+
+    if (!nova || nova.length < 6) { senhaMensagem('A senha deve ter pelo menos 6 caracteres.'); return; }
+    if (nova !== confirma) { senhaMensagem('As senhas não coincidem.'); return; }
+
+    senhaMensagem(null);
+    btn.classList.add('is-loading');
+    if (spin) spin.style.display = 'inline-block';
+    lbl.textContent = 'Salvando…';
+
+    try {
+        const resp = await fetch(`${API_URL}/senha/redefinir`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identificador: senhaIdentificador, codigo, nova_senha: nova })
+        });
+        const dados = await resp.json();
+        if (!resp.ok) throw new Error(dados.erro || 'Não foi possível redefinir a senha.');
+
+        senhaMensagem('Senha redefinida! Entre com a senha nova.', 'ok');
+        setTimeout(() => {
+            fecharRecuperarSenha();
+            const campo = document.getElementById('loginPasswordInput');
+            if (campo) { campo.value = ''; campo.focus(); }
+        }, 1800);
+    } catch (err) {
+        senhaMensagem(err.message);
+        // Código errado ou vencido: voltar ao passo 2 é onde a pessoa resolve.
+        if (/código/i.test(err.message)) senhaIrParaPasso(2);
+    } finally {
+        btn.classList.remove('is-loading');
+        if (spin) spin.style.display = 'none';
+        lbl.textContent = 'Redefinir senha';
+    }
+}
+
+// ======================================================
 // PERMISSÕES
 // ======================================================
 function getPermissoesUsuario() {
@@ -553,15 +806,10 @@ function setupLoginScreen() {
         emailInput.addEventListener('keydown', aoPressionarEnter);
         pwdInput.addEventListener('keydown', aoPressionarEnter);
 
-        // A recuperação virou um fluxo em dois passos na própria página:
-        // informar e-mail/CPF -> receber o código por e-mail -> trocar a senha.
-        // O que já estiver digitado aqui vai junto, para não digitar duas vezes.
-        document.getElementById('btnEsqueciSenha')?.addEventListener('click', function () {
-            const informado = document.getElementById('loginEmailInput')?.value.trim();
-            window.location.href = informado
-                ? `./almoxarife/redefinir-senha.html?identificador=${encodeURIComponent(informado)}`
-                : './almoxarife/redefinir-senha.html';
-        });
+        // A recuperação acontece aqui mesmo, num pop-up de três passos
+        // (ver abrirRecuperarSenha). Antes isto abria outra página, e sair do
+        // login para voltar depois era uma viagem à toa.
+        document.getElementById('btnEsqueciSenha')?.addEventListener('click', abrirRecuperarSenha);
     }
 
     faceIdMostrarBotao();
@@ -745,9 +993,27 @@ function iniciar() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
 else iniciar();
 
-// Logout vindo do app dentro do iframe
+// Pedidos vindos do app dentro do iframe.
 window.addEventListener('message', function (e) {
-    if (e.data && (e.data.type === 'lwn-logout' || e.data.type === 'logout')) resetLogin();
+    if (!e.data) return;
+
+    if (e.data.type === 'lwn-logout' || e.data.type === 'logout') return resetLogin();
+
+    // "Trocar agora", do aviso de senha padrão. A troca é a mesma do
+    // "Esqueceu sua senha?" — código por e-mail —, e ela vive aqui, na tela
+    // de login. Voltamos para cá e abrimos o pop-up já com o e-mail dele.
+    //
+    // Sair da sessão não é efeito colateral: redefinir a senha encerra as
+    // sessões salvas de qualquer jeito (POST /api/senha/redefinir), então
+    // continuar logado seria uma promessa que não se sustenta.
+    if (e.data.type === 'lwn-trocar-senha') {
+        resetLogin();
+        setTimeout(() => {
+            const campo = document.getElementById('loginEmailInput');
+            if (campo && e.data.email) campo.value = e.data.email;
+            abrirRecuperarSenha();
+        }, 250);
+    }
 });
 
 // Volta pelo botão "voltar" do navegador (bfcache).

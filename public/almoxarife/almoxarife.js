@@ -9159,13 +9159,34 @@ function mostrarAvisoTrocaSenha() {
                         style="padding:0.5rem 1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);font-size:0.82rem;cursor:pointer;">Não me mostrar novamente</button>
                 <button type="button" class="btn btn-outline" onclick="fecharAvisoSenha()"
                         style="padding:0.5rem 1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);font-size:0.82rem;cursor:pointer;">Agora não</button>
-                <button type="button" class="btn btn-primary" onclick="fecharAvisoSenha();window.open('redefinir-senha.html','_blank');"
+                <button type="button" class="btn btn-primary" onclick="irTrocarSenha()"
                         style="padding:0.5rem 1.1rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:700;font-size:0.82rem;cursor:pointer;">Trocar agora</button>
             </div>
         </div>`;
     document.body.appendChild(modal);
 }
 window.mostrarAvisoTrocaSenha = mostrarAvisoTrocaSenha;
+
+// Leva para a troca de senha, que acontece na tela de LOGIN (o pop-up de
+// três passos, o mesmo do "Esqueceu sua senha?"). A página separada de
+// redefinição deixou de existir.
+//
+// Sair da sessão faz parte: redefinir a senha encerra as sessões salvas de
+// qualquer jeito, então manter o app aberto atrás seria enganoso.
+function irTrocarSenha() {
+    fecharAvisoSenha();
+    let email = '';
+    try { email = (JSON.parse(sessionStorage.getItem('lwn_user') || '{}').email) || ''; } catch (e) {}
+    try {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'lwn-trocar-senha', email }, '*');
+            return;
+        }
+    } catch (e) { /* cai no reserva abaixo */ }
+    // Fora do iframe (alguém abriu o app direto): a tela de login resolve.
+    window.location.href = '../index.html';
+}
+window.irTrocarSenha = irTrocarSenha;
 
 // Inicializar quando a página carregar
 document.addEventListener('DOMContentLoaded', initApp);
@@ -14341,12 +14362,7 @@ function remCampoBipagemHTML(idInput, nomeFuncao) {
             <button type="button" class="btn btn-outline btn-sm" style="padding:0.4rem 1rem;"
                     onclick="abrirScannerCampo('${idInput}', ${nomeFuncao})">Usar câmera</button>
         </div>
-        ${podeDigitar ? '' : `
-        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
-            A <strong>digitação</strong> do código está bloqueada para o seu cargo — a bipagem, não.
-            Bipe com o <strong>leitor de código de barras</strong> ou toque em <strong>Usar câmera</strong>:
-            a ferramenta é reconhecida e adicionada automaticamente.
-        </div>`}`;
+        `;
 }
 window.remCampoBipagemHTML = remCampoBipagemHTML;
 

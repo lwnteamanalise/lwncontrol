@@ -64,6 +64,9 @@
 47. Ajustes de 08/09 (segunda rodada)
 48. "Cadastrar facial" virou uma tela própria
 49. O remetente do e-mail é a caixa principal da empresa
+50. As notificações não saíam para quem solicitava a própria OS
+51. "Esqueceu sua senha?" virou um pop-up na própria tela
+52. Ajustes de texto
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -1202,3 +1205,62 @@ Vale registrar o que o `OUTLOOK_REMETENTE` é, porque o nome confunde: **não** 
 (Microsoft Graph, credenciais do aplicativo, consentimento do administrador). A
 variável diz **qual caixa do tenant assina** a mensagem — e a Microsoft exige
 uma, não existe enviar sem remetente.
+
+---
+
+## 50. As notificações não saíam para quem solicitava a própria OS (08/09)
+
+Solicitar uma OS e indicar **a si mesmo** como responsável não gerava e-mail
+nenhum. Era o `excluirId`, a regra "quem fez a ação não precisa ser avisado
+dela": sendo o solicitante *e* o responsável, a pessoa era removida da própria
+lista e não sobrava ninguém.
+
+A regra faz sentido para um aviso de **grupo** — quem pediu um remanejamento não
+precisa receber o e-mail que ele mesmo disparou. Mas quando o destinatário foi
+**escolhido a dedo** (o responsável indicado na OS), ele recebe mesmo tendo sido
+quem agiu: ali o e-mail é a tarefa *"aprove isto"*, não um *"você fez isto"*.
+
+Agora o `excluirId` só vale quando não há destinatário escolhido. Testado pelo
+caminho real — OS criada com o mesmo usuário nas duas pontas, e o servidor
+registrou `email[os_solicitada] {"enviados":1}`.
+
+---
+
+## 51. "Esqueceu sua senha?" virou um pop-up na própria tela (08/09)
+
+Antes o link abria outra página. Sair do login para voltar depois é uma viagem à
+toa — quem esqueceu a senha já está no lugar certo.
+
+Agora é um pop-up de três passos, sem navegação nenhuma:
+
+| | |
+|---|---|
+| 1 | e-mail ou CPF → o código de 6 dígitos sai para o e-mail cadastrado |
+| 2 | o código |
+| 3 | a senha nova |
+
+O código **não** é conferido no passo 2: quem confere é o passo 3, junto com a
+senha, num pedido só. Conferir antes gastaria o código (ele vale uma vez) e a
+pessoa ficaria travada entre os dois passos. Errando o código, a tela volta ao
+passo 2 com a mensagem — que é onde ela resolve.
+
+A página `almoxarife/redefinir-senha.html` foi **removida**. O aviso "troque a
+sua senha padrão", que abria aquela página, agora leva ao mesmo pop-up: o app
+volta para o login e ele abre já com o e-mail preenchido. Sair da sessão faz
+parte — redefinir a senha encerra as sessões salvas de qualquer jeito.
+
+---
+
+## 52. Ajustes de texto (08/09)
+
+**Saiu o aviso "a digitação do código está bloqueada para o seu cargo"**, dos
+campos de bipagem da Retirada, da Devolutiva e do Remanejamento. Ele explicava
+uma permissão que não existe mais: hoje **ninguém** digita, e dizer "bloqueado
+para o seu cargo" sugeria que outro cargo poderia.
+
+**"Comece pela baia — as ferramentas só são aceitas depois dela"** virou
+**"As ferramentas só serão aceitas após a bipagem da baia."**
+
+**Na tela de login, o botão do Outlook ficou só com o quadriculado da
+Microsoft** — sem a palavra. Ele passou a ter o mesmo tamanho e formato do botão
+do rosto, e os dois leem como um par.

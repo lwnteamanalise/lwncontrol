@@ -677,7 +677,7 @@ async function abrirModalConferenciaOS(osId) {
                             <span id="conf-sep-contador" style="font-size:0.76rem;font-weight:700;color:var(--primary);">0 bipada(s)</span>
                         </div>
                         <div id="conf-sep-trava" style="border:1px dashed var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 10%, transparent);border-radius:0.5rem;padding:0.55rem 0.75rem;font-size:0.8rem;font-weight:600;color:var(--warning,#f59e0b);margin-bottom:0.45rem;">
-                            Comece pela <strong>baia</strong> — as ferramentas só são aceitas depois dela.
+                            As ferramentas só serão aceitas após a bipagem da baia.
                         </div>
                         ${confCampoBipagemHTML('conf-sep-codigo', 'conf-sep-scanner-btn', 'confSepBipar()', "abrirScannerCampo('conf-sep-codigo', confSepBipar)")}
                         <div id="conf-sep-aviso" style="display:none;margin-top:0.5rem;"></div>
@@ -1748,12 +1748,7 @@ function confCampoBipagemHTML(idInput, idBotaoCamera, acaoAdicionar, acaoCamera)
             ${podeDigitar ? `<button class="btn btn-primary btn-sm" style="padding:0.4rem 1rem;" onclick="${acaoAdicionar}">Adicionar</button>` : ''}
             <button class="btn btn-outline btn-sm" style="padding:0.4rem 1rem;" onclick="${acaoCamera}" id="${idBotaoCamera}">Usar câmera</button>
         </div>
-        ${podeDigitar ? '' : `
-        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
-            A <strong>digitação</strong> do código está bloqueada para o seu cargo — a bipagem, não.
-            Bipe com o <strong>leitor de código de barras</strong> ou toque em <strong>Usar câmera</strong>:
-            a ferramenta é reconhecida e adicionada automaticamente.
-        </div>`}`;
+        `;
 }
 window.confCampoBipagemHTML = confCampoBipagemHTML;
 

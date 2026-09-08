@@ -243,8 +243,19 @@ async function destinatarios(pool, tipo, opcoes) {
         lista = lista.filter(u => nomes.has(String(u.nome || '').trim().toLowerCase()));
     }
 
-    // Quem fez a ação não precisa ser avisado dela.
-    if (o.excluirId != null) lista = lista.filter(u => String(u.id) !== String(o.excluirId));
+    // Quem fez a ação não precisa ser avisado dela — MAS só quando o aviso é
+    // para um grupo.
+    //
+    // Tendo destinatário escolhido a dedo (o responsável indicado na OS, por
+    // exemplo), ele recebe mesmo sendo quem agiu: solicitar uma OS e indicar
+    // A SI MESMO como responsável é comum, e nesse caso o aviso é a tarefa
+    // "aprove isto", não um "você fez isto". Antes o e-mail simplesmente não
+    // saía para ninguém nesse caso.
+    const temAlvoEscolhido = (Array.isArray(o.somenteIds) && o.somenteIds.length)
+                          || (Array.isArray(o.somenteNomes) && o.somenteNomes.length);
+    if (o.excluirId != null && !temAlvoEscolhido) {
+        lista = lista.filter(u => String(u.id) !== String(o.excluirId));
+    }
 
     return lista;
 }
