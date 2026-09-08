@@ -303,7 +303,9 @@ function rostoAbrirTela() {
     overlay.innerHTML = `
         <div class="rosto-card">
             <div class="rosto-titulo">Olhe para a câmera</div>
+            <div class="rosto-dica">Mexa a cabeça devagar para os lados e para cima e para baixo.</div>
             <video id="rostoVideo" playsinline muted></video>
+            <div class="rosto-barra"><div class="rosto-barra-cheia" id="rostoBarra"></div></div>
             <div class="rosto-passo" id="rostoPasso">Ligando a câmera...</div>
             <button type="button" class="rosto-cancelar" id="rostoCancelar">Cancelar</button>
         </div>`;
@@ -343,8 +345,16 @@ async function entrarComRosto() {
 
         const [descritor] = await window.LWNFace.ler(video, {
             amostras: 1,
-            exigirPiscada: true,
-            aoProgredir: rostoPasso
+            exigirMovimento: true,
+            aoProgredir: (texto, dados) => {
+                rostoPasso(texto);
+                // A barrinha existe porque "mexa a cabeça" sem retorno visual
+                // deixa a pessoa sem saber se está adiantando alguma coisa.
+                const barra = document.getElementById('rostoBarra');
+                if (barra && dados && dados.progresso !== undefined) {
+                    barra.style.width = Math.round(dados.progresso * 100) + '%';
+                }
+            }
         });
 
         window.LWNFace.fecharCamera(rostoStream);

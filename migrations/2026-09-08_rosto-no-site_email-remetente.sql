@@ -112,3 +112,40 @@ CREATE INDEX IF NOT EXISTS idx_rostos_usuario ON usuario_rostos (usuario_id);
 --    WHERE jsonb_typeof(permissoes) = 'object' AND permissoes ? 'bipagem_manual';
 
 COMMIT;
+
+-- ============================================================================
+-- ADENDO — segunda rodada de 08/09
+--
+-- 6. PROVA DE VIDA: MOVIMENTO DA CABEÇA, NÃO PISCADA
+--
+-- Nada no banco. A piscada não funcionava na prática: ela dura ~150 ms, e
+-- entre um quadro analisado e o seguinte passa mais que isso — o olho fechado
+-- quase nunca caía num quadro examinado. Agora exige-se mexer a cabeça (para
+-- os lados e para cima e para baixo), que dura segundos e aparece em dezenas
+-- de quadros. A medida é a posição da ponta do nariz DENTRO do quadrado do
+-- rosto, com amplitude exigida nos dois eixos (ver public/face-lwn.js).
+
+-- 7. PERMISSÃO "cadastrar_facial"
+--
+-- Não há coluna nova: é a chave `cadastrar_facial` dentro de
+-- usuarios.permissoes (JSONB), configurada na tela de Cargos.
+--
+-- O cadastro do rosto saiu do botão flutuante (que sumiu) e foi para a tela de
+-- Colaboradores, ao lado de Editar e Excluir: quem cadastra é quem tem a
+-- permissão, com o colaborador na frente da câmera.
+--
+-- Herança: quem já administra colaboradores (permissão `usuarios`) recebe a
+-- nova por padrão. Sem isso, ela não apareceria em nenhum cargo já configurado
+-- e o botão não existiria para ninguém. A regra está em PERMISSOES_HERDADAS
+-- (public/almoxarife/almoxarife.js).
+--
+-- Para dispensar a herança desde já:
+--   UPDATE usuarios SET permissoes = permissoes || '{"cadastrar_facial": true}'::jsonb
+--    WHERE id IN (/* ids de quem cadastra */);
+
+-- 8. A COLUNA "Face ID" DA TELA DE COLABORADORES
+--
+-- Nada no banco. GET /api/rosto/status SEM usuario_id passou a devolver também
+-- `usuarios`: a lista de ids que têm rosto cadastrado. É com ela que a tela
+-- desenha o certinho ou o X — uma chamada só para a tabela inteira, em vez de
+-- uma por linha. "Status Conta" virou "Status".

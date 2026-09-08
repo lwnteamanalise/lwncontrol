@@ -1731,7 +1731,19 @@ app.get("/api/rosto/status", async (req, res) => {
         const usuarioId = parseInt(req.query.usuario_id);
         const total = await pool.query("SELECT COUNT(*)::int AS n FROM usuario_rostos");
         if (!Number.isInteger(usuarioId)) {
-            return res.json({ cadastrado: false, leituras: 0, total_no_sistema: total.rows[0].n });
+            // Sem usuário informado, a resposta é a LISTA de quem tem rosto
+            // cadastrado. É com ela que a tela de Colaboradores desenha o
+            // certinho ou o X na coluna Face ID — uma chamada só para a tabela
+            // inteira, em vez de uma por linha.
+            const quem = await pool.query(
+                "SELECT DISTINCT usuario_id FROM usuario_rostos"
+            );
+            return res.json({
+                cadastrado: false,
+                leituras: 0,
+                total_no_sistema: total.rows[0].n,
+                usuarios: quem.rows.map(x => x.usuario_id)
+            });
         }
         const r = await pool.query(
             `SELECT COUNT(*)::int AS n, MIN(criado_em) AS desde, MAX(ultimo_uso) AS ultimo

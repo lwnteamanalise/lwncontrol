@@ -269,7 +269,11 @@ const PERMISSOES_MODULOS = [
     ['manutencao_somente_leitura', 'Manutenção — apenas visualizar'],
     ['logs', 'Logs de Atividade'],
     ['alterar_cargo', 'Alterar Cargo/Função de Colaborador'],
-    ['gerenciar_cargos', 'Criar/Editar Cargos']
+    ['gerenciar_cargos', 'Criar/Editar Cargos'],
+    // Cadastrar o ROSTO de um colaborador (tela de Colaboradores). Quem
+    // cadastra faz isso com a pessoa na frente, e responde pelo cadastro —
+    // por isso é permissão de cargo, e não algo que cada um faz por si.
+    ['cadastrar_facial', 'Cadastrar facial (reconhecimento de rosto)']
 ];
 
 // ============================================================
@@ -360,7 +364,12 @@ const PERMISSOES_HERDADAS = [
     // (a herança de "bipagem_manual" saiu junto com a permissão)
     // Prorrogar era um ato direto: quem já podia prorrogar continua decidindo
     // (agora aprovando o pedido), para nenhuma OS ficar sem quem aceite.
-    ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']]
+    ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']],
+    // Cadastrar o rosto de um colaborador nasce para quem já administra os
+    // colaboradores — é na tela deles que o cadastro acontece. Sem esta linha,
+    // a permissão nova não apareceria em nenhum cargo já configurado, e o
+    // botão não existiria para ninguém até alguém marcá-lo à mão.
+    ['cadastrar_facial', ['usuarios']]
     // As permissões de NOTIFICAÇÃO ficam de fora desta lista de propósito: a
     // herança delas é decidida no servidor, na hora de escolher quem recebe
     // (api/email.js -> destinatarios), e não copiada para o cargo. Herdá-las
@@ -1301,7 +1310,13 @@ async function carregarUsuarios() {
         if (!resposta.ok) throw new Error("Erro ao buscar usuários: " + resposta.status);
         users = await resposta.json();
         console.log("Usuários carregados:", users.length);
-        
+
+        // Quem tem rosto cadastrado, para a coluna "Face ID" da tabela. Uma
+        // chamada só, antes de desenhar — perguntar por linha faria 38.
+        if (typeof facialCarregarCadastrados === 'function') {
+            await facialCarregarCadastrados();
+        }
+
         renderUsuariosTable('usuarios-tbody');
         renderUsuariosTable('config-usuarios-tbody');
         if (typeof atualizarFiltroCargos === 'function') atualizarFiltroCargos();
@@ -2897,14 +2912,17 @@ function renderUsuariosTable(targetId) {
     }
 
     if (!users || users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum usuário cadastrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum usuário cadastrado.</td></tr>`;
         return;
     }
 
     if (listaUsuarios.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum colaborador com o cargo selecionado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum colaborador com o cargo selecionado.</td></tr>`;
         return;
     }
+
+    // Lida uma vez, fora do laço: a resposta é a mesma para as 38 linhas.
+    const podeCadastrarFacialAqui = typeof podeCadastrarFacial === 'function' && podeCadastrarFacial();
 
     tbody.innerHTML = listaUsuarios.map(u => {
         // Nome com ícones à esquerda (apenas se modo edição ativo)
@@ -2920,6 +2938,11 @@ function renderUsuariosTable(targetId) {
                         <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                         <span>Excluir</span>
                     </button>
+                    ${podeCadastrarFacialAqui ? `
+                    <button class="btn-face-user"onclick="facialAbrirPainel(${u.id})"title="Cadastrar o rosto deste colaborador">
+                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"stroke-linecap="round"stroke-linejoin="round"><path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8"/><path d="M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8"/><path d="M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16"/><path d="M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/><path d="M9 9v1.5"/><path d="M15 9v1.5"/><path d="M12 9.5v3.5a.8.8 0 0 1-.9.8"/><path d="M8.8 16.2a4.6 4.6 0 0 0 6.4 0"/></svg>
+                        <span>Cadastrar facial</span>
+                    </button>` : ''}
                     <span class="user-row-name">${u.nome}</span>
                 </div>
             `;
@@ -2999,6 +3022,7 @@ function renderUsuariosTable(targetId) {
                     ${permissoesTexto}
                 </td>
                 <td><span class="badge ${u.ativo !== false ? 'badge-success' : 'badge-danger'}">${u.ativo !== false ? 'Ativo' : 'Inativo'}</span></td>
+                <td style="text-align:center;">${typeof facialSeloHtml === 'function' ? facialSeloHtml(u.id) : ''}</td>
             </tr>
         `;
     }).join('');

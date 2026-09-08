@@ -428,6 +428,20 @@ html[data-theme="dark"]  .logo-light { display:none; }
      botão Cancelar continuar visível — sem isto o cartão passava da tela. */
   max-height: calc(100dvh - 210px);
 }
+.rosto-card .rosto-dica {
+  font-size: 12.5px; line-height: 1.45; color: var(--text-subtitle);
+  margin: -8px 0 12px;
+}
+/* A barrinha de progresso do movimento. Sem retorno visual, "mexa a cabeça"
+   deixa a pessoa sem saber se está adiantando alguma coisa. */
+.rosto-card .rosto-barra {
+  height: 5px; border-radius: 3px; overflow: hidden;
+  background: var(--field-bg); margin-top: 12px;
+}
+.rosto-card .rosto-barra-cheia {
+  height: 100%; width: 0%; border-radius: 3px;
+  background: var(--btn-bg); transition: width .2s ease;
+}
 .rosto-card .rosto-passo {
   margin-top: 14px; min-height: 20px;
   font-size: 14px; font-weight: 600; color: var(--text-welcome);

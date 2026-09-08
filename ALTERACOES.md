@@ -59,6 +59,9 @@
 42. E-mail: o que faltava era o remetente
 43. Redefinição de senha: e-mail não cadastrado é recusado
 44. Ajustes de 08/09
+45. A prova de vida virou **movimento da cabeça**
+46. O cadastro facial foi para **Colaboradores**
+47. Ajustes de 08/09 (segunda rodada)
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -1095,3 +1098,68 @@ Código", que já tinha sido removido — desde então era uma coluna vazia.
 
 **O botão do Face ID voltou para o canto inferior direito** no desktop. No
 celular ele continua mais acima, porque lá existe uma barra de abas fixa embaixo.
+
+---
+
+## 45. A prova de vida virou **movimento da cabeça** (08/09)
+
+A versão anterior pedia uma **piscada** — e não funcionava. A piscada dura
+~150 ms; entre um quadro analisado e o seguinte passa mais tempo que isso, então
+o olho fechado quase nunca caía num quadro examinado. A pessoa piscava várias
+vezes e a tela não saía do lugar.
+
+Agora pede-se **mexer a cabeça**: para os lados e para cima e para baixo. Isso
+dura segundos e aparece em dezenas de quadros seguidos — é impossível não
+detectar.
+
+**Como é medido.** Onde a **ponta do nariz** está dentro do quadrado do rosto
+(0 a 1 nos dois eixos). Virar a cabeça move o nariz na horizontal; balançar move
+na vertical. Exige-se amplitude nos **dois** eixos — assim uma foto sendo
+sacudida na frente da câmera não passa, porque nela o nariz não se move *dentro*
+do rosto: o rosto inteiro é que anda.
+
+| | |
+|---|---|
+| horizontal | 10% da largura do rosto |
+| vertical | 7% da altura |
+| quadros mínimos | 8 |
+
+Medido contra o próprio rosto, e não contra a tela, o número vale igual para
+quem está perto ou longe da câmera. Uma **barrinha de progresso** mostra o
+quanto falta, e o texto muda conforme o que já foi feito ("Isso! Agora incline a
+cabeça para cima e para baixo").
+
+---
+
+## 46. O cadastro facial saiu do botão flutuante e foi para **Colaboradores** (08/09)
+
+O botão flutuante no canto da tela sumiu — do desktop e do celular. O cadastro
+agora vive onde faz sentido: na tela de **Colaboradores**, ao lado de Editar e
+Excluir, no modo de edição.
+
+Quem cadastra não é a própria pessoa: é **quem tem a permissão**, com o
+colaborador ali na frente da câmera. O cadastro é feito uma vez, com a pessoa
+presente, e quem faz responde por ele.
+
+**Permissão nova: "Cadastrar facial".** Ela nasce para quem já administra os
+colaboradores (permissão `usuarios`) — sem essa herança, a permissão nova não
+apareceria em nenhum cargo já configurado e o botão não existiria para ninguém.
+
+**Coluna "Face ID"**, à direita de Status, com **✓** para quem tem rosto
+cadastrado e **✗** para quem não tem. A lista de quem tem vem numa chamada só,
+antes de desenhar — perguntar por linha faria 38 requisições para pintar uma
+coluna. E **"Status Conta" virou "Status"**.
+
+---
+
+## 47. Ajustes de 08/09 (segunda rodada)
+
+**A permissão "Digitar/colar código na bipagem" saiu de vez.** Ela ainda
+aparecia na tela porque a versão anterior estava só no repositório, não no ar.
+
+**E-mail: o remetente.** O envio sempre foi pela API da empresa (Microsoft
+Graph, com as credenciais do aplicativo "Almoxarife" e consentimento do
+administrador). O `OUTLOOK_REMETENTE` não é "de qual conta pessoal sai" — é
+**qual caixa do tenant assina** a mensagem, e a Microsoft exige uma. Não existe
+`naoresponda@` no domínio; enquanto não existir, a caixa configurada é a que
+aparece como remetente.
