@@ -9061,9 +9061,10 @@ document.addEventListener('visibilitychange', () => {
 // ============================================================
 // ATUALIZAR SAUDAÇÃO COM NOME DO USUÁRIO
 // ============================================================
+// O avatar com as iniciais que ficava antes de "Ótimo dia" foi removido: a
+// saudação é só o texto. A foto da conta Microsoft continua sendo trazida no
+// login e guardada em usuarios.foto — ela só não é mais desenhada aqui.
 function atualizarSaudacao() {
-    // O avatar ao lado da saudação foi removido. Esta linha limpa o que uma
-    // aba aberta desde antes da mudança ainda tenha na tela.
     try {
         const user = JSON.parse(sessionStorage.getItem('lwn_user') || '{}');
         const nome = user.nome || 'Usuário';
