@@ -67,6 +67,7 @@
 50. As notificações não saíam para quem solicitava a própria OS
 51. "Esqueceu sua senha?" virou um pop-up na própria tela
 52. Ajustes de texto
+53. No celular, cadastrar o rosto virou obrigatório
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -1264,3 +1265,34 @@ para o seu cargo" sugeria que outro cargo poderia.
 **Na tela de login, o botão do Outlook ficou só com o quadriculado da
 Microsoft** — sem a palavra. Ele passou a ter o mesmo tamanho e formato do botão
 do rosto, e os dois leem como um par.
+
+---
+
+## 53. No celular, cadastrar o rosto virou obrigatório (08/09)
+
+Quem entra pelo celular e ainda não tem rosto cadastrado **não usa o sistema
+antes de cadastrar**. A tela cobre tudo, trava a rolagem do fundo e não tem
+botão de fechar, cancelar ou "depois".
+
+Cadastrado uma vez, ele vale em **qualquer aparelho**: o rosto fica no site, não
+no telefone. É por isso que o auto-cadastro compensa — cada um resolve o seu, no
+próprio celular, e passa a entrar pela câmera em todos os pontos.
+
+**Por que só no celular.** É onde a câmera frontal está sempre à mão e a foto
+sai boa. No micro da bancada a câmera pode nem existir, e bloquear ali deixaria
+gente sem conseguir trabalhar.
+
+**Quem vouça pelo rosto muda — e isso é deliberado.** Até aqui, cadastrar exigia
+a permissão "Cadastrar facial", com a pessoa na frente de quem cadastrava. No
+auto-cadastro, quem estiver logado registra o rosto que estiver na câmera.
+
+A troca se sustenta porque o cadastro acontece **depois do login por senha**: a
+conta já foi provada, e o rosto é preso a uma sessão legítima — a mesma ideia de
+cadastrar uma chave de acesso depois de entrar. O que ela custa é que uma conta
+emprestada registra o rosto errado. Por isso o **painel de Colaboradores
+continua existindo**: é lá que se vê quem tem rosto e se **apaga** um cadastro
+errado, e é lá que o cadastro é feito para quem não usa celular.
+
+**Se a câmera não abrir**, a tela explica e deixa tentar de novo — não libera o
+acesso. Mas ninguém fica sem o sistema por causa disso: o **computador continua
+livre**, porque o bloqueio é só do celular.
