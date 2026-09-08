@@ -2921,9 +2921,9 @@ function renderUsuariosTable(targetId) {
         return;
     }
 
-    // Lida uma vez, fora do laço: a resposta é a mesma para as 38 linhas.
-    const podeCadastrarFacialAqui = typeof podeCadastrarFacial === 'function' && podeCadastrarFacial();
-
+    // O cadastro do rosto NÃO fica mais na linha do colaborador: ele mora no
+    // painel aberto pelo botão "Cadastrar facial", ao lado de "Editar
+    // Colaboradores". Aqui a coluna Face ID só MOSTRA quem tem.
     tbody.innerHTML = listaUsuarios.map(u => {
         // Nome com ícones à esquerda (apenas se modo edição ativo)
         let nomeHtml = u.nome;
@@ -2938,11 +2938,6 @@ function renderUsuariosTable(targetId) {
                         <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                         <span>Excluir</span>
                     </button>
-                    ${podeCadastrarFacialAqui ? `
-                    <button class="btn-face-user"onclick="facialAbrirPainel(${u.id})"title="Cadastrar o rosto deste colaborador">
-                        <svg viewBox="0 0 24 24"fill="none"stroke="currentColor"stroke-width="2"stroke-linecap="round"stroke-linejoin="round"><path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8"/><path d="M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8"/><path d="M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16"/><path d="M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/><path d="M9 9v1.5"/><path d="M15 9v1.5"/><path d="M12 9.5v3.5a.8.8 0 0 1-.9.8"/><path d="M8.8 16.2a4.6 4.6 0 0 0 6.4 0"/></svg>
-                        <span>Cadastrar facial</span>
-                    </button>` : ''}
                     <span class="user-row-name">${u.nome}</span>
                 </div>
             `;

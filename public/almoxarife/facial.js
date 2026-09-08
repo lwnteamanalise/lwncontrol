@@ -134,9 +134,121 @@ function facialGarantirEstilo() {
     document.head.appendChild(estilo);
 }
 
+// ============================================================
+// O PAINEL DE GESTÃO
+//
+// Uma tela só para o reconhecimento facial, aberta pelo botão "Cadastrar
+// facial" ao lado de "Editar Colaboradores". Ela mostra:
+//
+//   - quem JÁ TEM rosto cadastrado, com o botão de excluir ao lado;
+//   - um campo para escolher quem ainda não tem e cadastrar.
+//
+// Antes o cadastro era um botão na linha de cada colaborador, e só aparecia
+// no modo de edição — para cadastrar alguém era preciso ligar o modo de
+// edição, achar a linha e clicar. Aqui as duas perguntas que se faz na
+// prática ("quem já tem?" e "quero cadastrar fulano") ficam na mesma tela.
+// ============================================================
+async function facialAbrirGestao() {
+    if (!podeCadastrarFacial()) {
+        showToast('Você não tem permissão para cadastrar facial.', 'danger');
+        return;
+    }
+
+    facialGarantirEstilo();
+    document.getElementById('facial-gestao-modal')?.remove();
+
+    await facialCarregarCadastrados();
+
+    // Os detalhes de cada cadastro (quantas leituras, desde quando) vêm um a
+    // um: são poucos, e o endpoint por usuário já existe.
+    const lista = (typeof users !== 'undefined' ? users : [])
+        .filter(u => u && u.ativo !== false)
+        .slice()
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+
+    const comRosto = lista.filter(u => facialUsuarioTemRosto(u.id));
+    const semRosto = lista.filter(u => !facialUsuarioTemRosto(u.id));
+
+    const linhasComRosto = comRosto.length ? comRosto.map(u => `
+        <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;border:1px solid var(--border-color);border-radius:0.5rem;padding:0.55rem 0.7rem;background:var(--bg-surface);">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:1.4rem;height:1.4rem;border-radius:50%;font-weight:900;font-size:0.8rem;color:var(--success,#16a34a);background:color-mix(in srgb, var(--success,#16a34a) 14%, transparent);flex-shrink:0;">&#10003;</span>
+            <span style="font-weight:700;font-size:0.85rem;color:var(--text-main);min-width:0;">${facialEscapar(u.nome)}</span>
+            <span style="font-size:0.72rem;color:var(--text-muted);">${facialEscapar(u.cargo || '')}</span>
+            <button type="button" class="btn btn-outline btn-sm" onclick="facialRemover(${u.id})"
+                    style="margin-left:auto;padding:0.2rem 0.6rem;font-size:0.72rem;border:1px solid var(--danger,#ef4444);border-radius:0.4rem;background:transparent;color:var(--danger,#ef4444);font-weight:600;cursor:pointer;">
+                Excluir
+            </button>
+        </div>`).join('')
+        : '<div style="font-size:0.8rem;color:var(--text-muted);padding:0.5rem 0;">Ninguém tem rosto cadastrado ainda.</div>';
+
+    const opcoes = semRosto.map(u =>
+        `<option value="${u.id}">${facialEscapar(u.nome)}${u.cargo ? ' — ' + facialEscapar(u.cargo) : ''}</option>`
+    ).join('');
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.id = 'facial-gestao-modal';
+    modal.style.cssText = 'display:flex;align-items:center;justify-content:center;z-index:2300;';
+    modal.innerHTML = `
+        <div class="modal-container" style="max-width:540px;width:94%;background:var(--bg-card);border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.35);max-height:92dvh;display:flex;flex-direction:column;">
+            <div class="modal-header" style="display:flex;align-items:center;gap:0.7rem;border-bottom:1px solid var(--border-color);padding:1rem 1.35rem;flex-shrink:0;">
+                <span style="display:inline-flex;color:var(--primary);">${FACIAL_ICONE}</span>
+                <div style="min-width:0;">
+                    <div class="modal-title" style="font-size:1.02rem;font-weight:800;color:var(--text-main);">Cadastrar facial</div>
+                    <div style="font-size:0.76rem;color:var(--text-muted);">${comRosto.length} de ${lista.length} colaborador(es) com rosto cadastrado</div>
+                </div>
+                <button class="modal-close" onclick="document.getElementById('facial-gestao-modal')?.remove()"
+                        style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text-muted);padding:0.25rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.25rem;height:1.25rem;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+
+            <div class="modal-body" style="padding:1.15rem 1.35rem;overflow-y:auto;">
+                <div style="font-size:0.8rem;font-weight:800;color:var(--text-main);margin-bottom:0.45rem;">Cadastrar um colaborador</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.2rem;">
+                    <select id="facial-gestao-quem" class="form-select"
+                            style="flex:1;min-width:200px;padding:0.5rem 0.7rem;font-size:0.84rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);">
+                        ${semRosto.length
+                            ? '<option value="">— Selecione o colaborador —</option>' + opcoes
+                            : '<option value="">Todos já têm rosto cadastrado</option>'}
+                    </select>
+                    <button type="button" class="btn btn-primary" onclick="facialCadastrarDaGestao()"
+                            style="padding:0.5rem 1.15rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:800;cursor:pointer;white-space:nowrap;">
+                        Cadastrar
+                    </button>
+                </div>
+
+                <div style="font-size:0.8rem;font-weight:800;color:var(--text-main);margin-bottom:0.45rem;">Já cadastrados</div>
+                <div style="display:flex;flex-direction:column;gap:0.4rem;">${linhasComRosto}</div>
+            </div>
+
+            <div class="modal-footer" style="display:flex;justify-content:flex-end;border-top:1px solid var(--border-color);padding:0.9rem 1.35rem;background:var(--bg-surface);border-radius:0 0 0.75rem 0.75rem;flex-shrink:0;">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('facial-gestao-modal')?.remove()"
+                        style="padding:0.5rem 1.1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);font-weight:600;cursor:pointer;">Fechar</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+window.facialAbrirGestao = facialAbrirGestao;
+
+// O "Cadastrar" do painel: pega quem foi escolhido no select e abre a câmera.
+function facialCadastrarDaGestao() {
+    const sel = document.getElementById('facial-gestao-quem');
+    const id = parseInt(sel?.value);
+    if (!Number.isInteger(id)) {
+        showToast('Selecione o colaborador que vai cadastrar o rosto.', 'danger');
+        sel?.focus();
+        return;
+    }
+    document.getElementById('facial-gestao-modal')?.remove();
+    facialAbrirPainel(id);
+}
+window.facialCadastrarDaGestao = facialCadastrarDaGestao;
+
 /**
- * Abre o cadastro do rosto DE UM COLABORADOR.
- * Chamado pela tela de Colaboradores, com a pessoa ali na frente.
+ * A câmera propriamente dita, para um colaborador.
+ * Chamada pelo painel de gestão, com a pessoa ali na frente.
  */
 async function facialAbrirPainel(usuarioId, nome) {
     // O nome não vem no onclick de propósito: um apóstrofo (D'Ávila) quebraria
@@ -196,19 +308,6 @@ async function facialAbrirPainel(usuarioId, nome) {
 
             <div class="modal-body" style="padding:1.15rem 1.35rem;">
                 <div id="facial-intro">
-                    <p style="font-size:0.85rem;color:var(--text-main);line-height:1.55;margin:0 0 0.8rem;">
-                        Com <strong>${quem}</strong> na frente da câmera, cadastre o rosto para
-                        ele entrar no LWN Control <strong>sem digitar a senha</strong>, em qualquer
-                        computador da empresa.
-                    </p>
-                    <div style="border:1px solid var(--border-color);background:var(--bg-surface);border-radius:0.5rem;padding:0.7rem 0.85rem;font-size:0.79rem;color:var(--text-muted);line-height:1.5;margin-bottom:0.9rem;">
-                        Durante a leitura será preciso <strong>mexer a cabeça devagar</strong> — para os
-                        lados e para cima e para baixo. É o que prova que há uma pessoa ali, e não uma foto.
-                        <br><br>
-                        Nenhuma foto é enviada ou guardada: o que fica registrado são
-                        <strong>128 números</strong> que descrevem o rosto.
-                    </div>
-
                     ${estado.cadastrado ? `
                     <div style="display:flex;align-items:center;gap:0.55rem;flex-wrap:wrap;border:1px solid var(--success,#16a34a);background:color-mix(in srgb, var(--success,#16a34a) 10%, transparent);border-radius:0.5rem;padding:0.6rem 0.75rem;margin-bottom:0.9rem;">
                         <span style="font-weight:800;font-size:0.85rem;color:var(--success,#16a34a);">Já tem rosto cadastrado</span>
@@ -320,6 +419,9 @@ async function facialCadastrar() {
         showToast(`Rosto de ${nome || 'colaborador'} cadastrado! Ele já pode entrar olhando para a câmera.`, 'success');
         facialFechar();
         await facialAtualizarTabela();
+        // Volta para o painel: quem cadastrou um provavelmente vai cadastrar
+        // o próximo, e a lista já aparece com este a mais.
+        await facialAbrirGestao();
 
     } catch (err) {
         console.error('Erro ao cadastrar o rosto:', err);
@@ -351,6 +453,8 @@ async function facialRemover(usuarioId) {
         showToast('Rosto removido do sistema.', 'success');
         facialFechar();
         await facialAtualizarTabela();
+        // O painel de gestão, se estava aberto, é redesenhado sem quem saiu.
+        if (document.getElementById('facial-gestao-modal')) await facialAbrirGestao();
     } catch (err) {
         showToast('Não foi possível remover: ' + err.message, 'danger');
     }

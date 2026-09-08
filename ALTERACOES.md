@@ -62,6 +62,8 @@
 45. A prova de vida virou **movimento da cabeça**
 46. O cadastro facial foi para **Colaboradores**
 47. Ajustes de 08/09 (segunda rodada)
+48. "Cadastrar facial" virou uma tela própria
+49. O remetente do e-mail é a caixa principal da empresa
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -1163,3 +1165,40 @@ administrador). O `OUTLOOK_REMETENTE` não é "de qual conta pessoal sai" — é
 **qual caixa do tenant assina** a mensagem, e a Microsoft exige uma. Não existe
 `naoresponda@` no domínio; enquanto não existir, a caixa configurada é a que
 aparece como remetente.
+
+---
+
+## 48. "Cadastrar facial" virou uma tela própria (08/09)
+
+O cadastro era um botão na **linha** de cada colaborador, e só aparecia no modo
+de edição: para cadastrar alguém era preciso ligar o modo de edição, achar a
+linha e clicar.
+
+Agora é um botão **ao lado de "Editar Colaboradores"**, que abre uma tela onde
+ficam as duas perguntas que se faz na prática:
+
+- **quem já tem rosto cadastrado** — a lista, com **Excluir** ao lado de cada um;
+- **quero cadastrar fulano** — um campo com quem ainda não tem, e o botão Cadastrar.
+
+Cadastrando ou excluindo, a tela **se redesenha** com a lista já atualizada:
+quem cadastrou um provavelmente vai cadastrar o próximo.
+
+O modal da câmera ficou só com o essencial — os dois blocos de texto explicativo
+saíram.
+
+**A coluna "Face ID"** continua na tabela, com ✓ para quem tem e ✗ para quem não
+tem, e acompanha cada cadastro e exclusão.
+
+---
+
+## 49. O remetente do e-mail é a **caixa principal da empresa** (08/09)
+
+Estava configurado `luis@`, uma caixa pessoal. Trocado para
+`lwnteamanalise@lwnengenharia.com.br` — a mesma que o outro sistema da empresa
+já usa.
+
+Vale registrar o que o `OUTLOOK_REMETENTE` é, porque o nome confunde: **não** é
+"de qual conta pessoal o sistema envia". O envio sempre foi pela API da empresa
+(Microsoft Graph, credenciais do aplicativo, consentimento do administrador). A
+variável diz **qual caixa do tenant assina** a mensagem — e a Microsoft exige
+uma, não existe enviar sem remetente.
