@@ -496,5 +496,35 @@ window.facialRemover = facialRemover;
 async function facialAtualizarTabela() {
     await facialCarregarCadastrados();
     if (typeof renderUsuariosTable === 'function') renderUsuariosTable('usuarios-tbody');
+    if (typeof renderUsuariosTable === 'function') renderUsuariosTable('config-usuarios-tbody');
 }
 window.facialAtualizarTabela = facialAtualizarTabela;
+
+// ============================================================
+// A COLUNA PRECISA SE CARREGAR SOZINHA
+//
+// carregarUsuarios() chama facialCarregarCadastrados() — mas ESTE arquivo é o
+// último <script> da página, e aquela função roda antes dele existir. A
+// guarda `typeof === 'function'` de lá então pulava a chamada em silêncio, o
+// cache ficava vazio e a coluna mostrava X para todo mundo, mesmo com rosto
+// cadastrado.
+//
+// Por isso a carga acontece também AQUI, assim que o arquivo é lido: quem
+// chegar primeiro preenche, e a tabela é redesenhada se já estiver na tela.
+// ============================================================
+(function carregarAssimQuePuder() {
+    const tentar = async () => {
+        // API_URL vem de almoxarife.js; se ainda não existe, espera o próximo ciclo.
+        if (typeof API_URL === 'undefined') return setTimeout(tentar, 200);
+        await facialCarregarCadastrados();
+        if (typeof renderUsuariosTable === 'function') {
+            renderUsuariosTable('usuarios-tbody');
+            renderUsuariosTable('config-usuarios-tbody');
+        }
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(tentar, 400));
+    } else {
+        setTimeout(tentar, 400);
+    }
+})();
