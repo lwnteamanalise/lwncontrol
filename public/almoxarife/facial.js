@@ -45,9 +45,17 @@ function facialEscapar(t) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// Quem pode cadastrar rosto de alguém. Sem a permissão o botão nem aparece na
-// linha do colaborador; o servidor não é consultado à toa.
+// Quem pode cadastrar rosto de alguém.
+//
+// Enquanto NINGUÉM tiver a permissão "Cadastrar facial" marcada em cargo
+// nenhum, quem já administra colaboradores pode — senão a permissão nova
+// nasceria inexistente para todo mundo, e o botão apareceria só para
+// recusar. Marcada a primeira vez, vale só o que está configurado.
+// (ver temPermissaoOuHerda em almoxarife.js)
 function podeCadastrarFacial() {
+    if (typeof temPermissaoOuHerda === 'function') {
+        return temPermissaoOuHerda('cadastrar_facial', 'usuarios');
+    }
     if (typeof usuarioTemPermissao !== 'function') return false;
     return usuarioTemPermissao('cadastrar_facial');
 }
@@ -157,10 +165,19 @@ async function facialAbrirGestao() {
     facialGarantirEstilo();
     document.getElementById('facial-gestao-modal')?.remove();
 
+    // A CASCA VEM PRIMEIRO, ainda sem dados.
+    //
+    // A lista de quem tem rosto vem de um fetch, e esperar por ele antes de
+    // mostrar qualquer coisa deixa o clique sem resposta por um segundo — que
+    // é exatamente como um botão quebrado se parece. Abrimos vazio e
+    // preenchemos em seguida.
+    facialMontarCascaGestao();
+
     await facialCarregarCadastrados();
 
-    // Os detalhes de cada cadastro (quantas leituras, desde quando) vêm um a
-    // um: são poucos, e o endpoint por usuário já existe.
+    // Fechado enquanto carregava? Então não há mais o que preencher.
+    if (!document.getElementById('facial-gestao-modal')) return;
+
     const lista = (typeof users !== 'undefined' ? users : [])
         .filter(u => u && u.ativo !== false)
         .slice()
@@ -185,6 +202,34 @@ async function facialAbrirGestao() {
         `<option value="${u.id}">${facialEscapar(u.nome)}${u.cargo ? ' — ' + facialEscapar(u.cargo) : ''}</option>`
     ).join('');
 
+    const contador = document.getElementById('facial-gestao-contador');
+    if (contador) contador.textContent = `${comRosto.length} de ${lista.length} colaborador(es) com rosto cadastrado`;
+
+    const corpo = document.getElementById('facial-gestao-corpo');
+    if (corpo) corpo.innerHTML = `
+        <div style="font-size:0.8rem;font-weight:800;color:var(--text-main);margin-bottom:0.45rem;">Cadastrar um colaborador</div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.2rem;">
+            <select id="facial-gestao-quem" class="form-select"
+                    style="flex:1;min-width:200px;padding:0.5rem 0.7rem;font-size:0.84rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);">
+                ${semRosto.length
+                    ? '<option value="">— Selecione o colaborador —</option>' + opcoes
+                    : '<option value="">Todos já têm rosto cadastrado</option>'}
+            </select>
+            <button type="button" class="btn btn-primary" onclick="facialCadastrarDaGestao()"
+                    style="padding:0.5rem 1.15rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:800;cursor:pointer;white-space:nowrap;">
+                Cadastrar
+            </button>
+        </div>
+
+        <div style="font-size:0.8rem;font-weight:800;color:var(--text-main);margin-bottom:0.45rem;">Já cadastrados</div>
+        <div style="display:flex;flex-direction:column;gap:0.4rem;">${linhasComRosto}</div>`;
+}
+window.facialAbrirGestao = facialAbrirGestao;
+
+// A casca da tela: cabeçalho, rodapé e um corpo que diz "Carregando...".
+// Ela aparece no primeiro instante do clique; facialAbrirGestao preenche o
+// corpo assim que souber quem tem rosto cadastrado.
+function facialMontarCascaGestao() {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay active';
     modal.id = 'facial-gestao-modal';
@@ -195,7 +240,7 @@ async function facialAbrirGestao() {
                 <span style="display:inline-flex;color:var(--primary);">${FACIAL_ICONE}</span>
                 <div style="min-width:0;">
                     <div class="modal-title" style="font-size:1.02rem;font-weight:800;color:var(--text-main);">Cadastrar facial</div>
-                    <div style="font-size:0.76rem;color:var(--text-muted);">${comRosto.length} de ${lista.length} colaborador(es) com rosto cadastrado</div>
+                    <div id="facial-gestao-contador" style="font-size:0.76rem;color:var(--text-muted);">Carregando...</div>
                 </div>
                 <button class="modal-close" onclick="document.getElementById('facial-gestao-modal')?.remove()"
                         style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text-muted);padding:0.25rem;">
@@ -203,23 +248,10 @@ async function facialAbrirGestao() {
                 </button>
             </div>
 
-            <div class="modal-body" style="padding:1.15rem 1.35rem;overflow-y:auto;">
-                <div style="font-size:0.8rem;font-weight:800;color:var(--text-main);margin-bottom:0.45rem;">Cadastrar um colaborador</div>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.2rem;">
-                    <select id="facial-gestao-quem" class="form-select"
-                            style="flex:1;min-width:200px;padding:0.5rem 0.7rem;font-size:0.84rem;border:2px solid var(--border-color);border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);">
-                        ${semRosto.length
-                            ? '<option value="">— Selecione o colaborador —</option>' + opcoes
-                            : '<option value="">Todos já têm rosto cadastrado</option>'}
-                    </select>
-                    <button type="button" class="btn btn-primary" onclick="facialCadastrarDaGestao()"
-                            style="padding:0.5rem 1.15rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:800;cursor:pointer;white-space:nowrap;">
-                        Cadastrar
-                    </button>
+            <div class="modal-body" id="facial-gestao-corpo" style="padding:1.15rem 1.35rem;overflow-y:auto;">
+                <div style="padding:1.5rem 0;text-align:center;font-size:0.85rem;color:var(--text-muted);">
+                    Carregando os cadastros...
                 </div>
-
-                <div style="font-size:0.8rem;font-weight:800;color:var(--text-main);margin-bottom:0.45rem;">Já cadastrados</div>
-                <div style="display:flex;flex-direction:column;gap:0.4rem;">${linhasComRosto}</div>
             </div>
 
             <div class="modal-footer" style="display:flex;justify-content:flex-end;border-top:1px solid var(--border-color);padding:0.9rem 1.35rem;background:var(--bg-surface);border-radius:0 0 0.75rem 0.75rem;flex-shrink:0;">
@@ -230,7 +262,6 @@ async function facialAbrirGestao() {
     document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 }
-window.facialAbrirGestao = facialAbrirGestao;
 
 // O "Cadastrar" do painel: pega quem foi escolhido no select e abre a câmera.
 function facialCadastrarDaGestao() {

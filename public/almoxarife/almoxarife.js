@@ -450,11 +450,64 @@ function podeGerenciarCargos() {
 }
 window.podeGerenciarCargos = podeGerenciarCargos;
 
+// ============================================================
+// HERANÇA VIVA DE UMA PERMISSÃO NOVA
+//
+// PERMISSOES_HERDADAS só vale para cargo AINDA NÃO CONFIGURADO (ver
+// permissoesDoCargo): num cargo já salvo vale exatamente o que está salvo,
+// e é assim que tem de ser — senão desmarcar não desmarcaria nada.
+//
+// O efeito colateral é que uma permissão NOVA nasce inexistente para todo
+// mundo: nenhum cargo configurado a tem, e ninguém consegue usá-la até
+// alguém abrir cargo por cargo e marcá-la. Foi o que aconteceu com
+// "Cadastrar facial": o botão aparecia e recusava.
+//
+// `ninguemTem` responde "esta permissão já foi configurada por alguém?".
+// Enquanto a resposta for não, quem já responde pelo assunto pode usá-la.
+// Marcada a primeira vez em qualquer cargo, a herança some.
+// ============================================================
+function ninguemTemAPermissao(chave) {
+    try {
+        // Nos cargos configurados na tela de Cargos...
+        const mapa = carregarPermissoesCargos() || {};
+        for (const cargo of Object.keys(mapa)) {
+            if (Array.isArray(mapa[cargo]) && mapa[cargo].includes(chave)) return false;
+        }
+        // ...e no que está gravado em cada colaborador.
+        const lista = (typeof users !== 'undefined' ? users : []) || [];
+        for (const u of lista) {
+            let p = u && u.permissoes;
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { p = null; } }
+            if (Array.isArray(p) && p.includes(chave)) return false;
+            if (p && typeof p === 'object' && p[chave]) return false;
+        }
+        return true;
+    } catch (e) {
+        return false;   // na dúvida, NÃO libera por herança
+    }
+}
+window.ninguemTemAPermissao = ninguemTemAPermissao;
+
+// Tem a permissão, OU ninguém a tem ainda e ele tem a permissão "mãe".
+function temPermissaoOuHerda(chave, mae) {
+    if (typeof usuarioTemPermissao !== 'function') return false;
+    if (usuarioTemPermissao(chave)) return true;
+    return ninguemTemAPermissao(chave) && usuarioTemPermissao(mae);
+}
+window.temPermissaoOuHerda = temPermissaoOuHerda;
+
 // Mostra/esconde os controles de cargo conforme a permissão
 function aplicarPermissaoGerenciarCargos() {
     const pode = podeGerenciarCargos();
     document.querySelectorAll('[data-perm="gerenciar_cargos"]').forEach(el => {
         el.style.display = pode ? '' : 'none';
+    });
+
+    // O botão do cadastro facial some para quem não pode usá-lo. Antes ele
+    // aparecia para todos e só recusava no clique, o que parecia defeito.
+    const podeFacial = typeof podeCadastrarFacial === 'function' && podeCadastrarFacial();
+    document.querySelectorAll('[data-perm="cadastrar_facial"]').forEach(el => {
+        el.style.display = podeFacial ? '' : 'none';
     });
 }
 window.aplicarPermissaoGerenciarCargos = aplicarPermissaoGerenciarCargos;
