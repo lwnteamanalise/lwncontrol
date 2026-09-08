@@ -1282,7 +1282,7 @@ próprio celular, e passa a entrar pela câmera em todos os pontos.
 sai boa. No micro da bancada a câmera pode nem existir, e bloquear ali deixaria
 gente sem conseguir trabalhar.
 
-**Quem vouça pelo rosto muda — e isso é deliberado.** Até aqui, cadastrar exigia
+**Quem voucha pelo rosto muda — e isso é deliberado.** Até aqui, cadastrar exigia
 a permissão "Cadastrar facial", com a pessoa na frente de quem cadastrava. No
 auto-cadastro, quem estiver logado registra o rosto que estiver na câmera.
 
