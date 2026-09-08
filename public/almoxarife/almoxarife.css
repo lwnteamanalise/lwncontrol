@@ -2288,6 +2288,27 @@ stroke: var(--primary-hover);
     transform: scale(1.05);
 }
 
+
+/* Cadastrar facial — mesmo formato dos outros dois botões da linha, em roxo
+   para não se confundir com Editar (azul) nem Excluir (vermelho). */
+.btn-face-user {
+    padding: 0.15rem 0.3rem !important;
+    font-size: 0.65rem !important;
+    background: #ede9fe !important;
+    color: #5b21b6 !important;
+    border: 1px solid #ddd6fe !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+    line-height: 1 !important;
+}
+
+.btn-face-user:hover {
+    background: #ddd6fe !important;
+    border-color: #c4b5fd !important;
+    transform: scale(1.05);
+}
+
 /* Botão Editar Colaboradores - modo ativo */
 .btn-editar-ativo {
     background-color: #1a56db !important;
@@ -3089,6 +3110,18 @@ body.dark-mode {
 .dark-mode .btn-delete-user:hover {
     background: #991b1b !important;
     border-color: #ef4444 !important;
+}
+
+
+.dark-mode .btn-face-user {
+    background: #3b2a63 !important;
+    color: #c4b5fd !important;
+    border-color: #3b2a63 !important;
+}
+
+.dark-mode .btn-face-user:hover {
+    background: #4c3480 !important;
+    border-color: #8b5cf6 !important;
 }
 
 /* ── SCROLLBAR ── */
@@ -5146,7 +5179,8 @@ body.dark-mode .badge.cert-badge-ghost { background: color-mix(in srgb, currentC
     color: var(--text-main);
 }
 .btn-edit-user,
-.btn-delete-user {
+.btn-delete-user,
+.btn-face-user {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
@@ -5161,7 +5195,8 @@ body.dark-mode .badge.cert-badge-ghost { background: color-mix(in srgb, currentC
     transition: background var(--transition-speed) ease;
 }
 .btn-edit-user svg,
-.btn-delete-user svg {
+.btn-delete-user svg,
+.btn-face-user svg {
     width: 0.85rem;
     height: 0.85rem;
     flex-shrink: 0;
@@ -5217,7 +5252,8 @@ body.dark-mode .badge.cert-badge-ghost { background: color-mix(in srgb, currentC
 
     .user-row-actions { gap: 0.3rem; }
     .btn-edit-user,
-    .btn-delete-user {
+    .btn-delete-user,
+    .btn-face-user {
         padding: 0.3rem 0.55rem;
         font-size: 0.7rem;
     }

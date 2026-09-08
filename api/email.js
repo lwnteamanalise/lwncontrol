@@ -99,15 +99,29 @@ async function enviarEmail({ para, assunto, html, texto }) {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                message: {
-                    subject: assunto,
-                    body: { contentType: 'HTML', content: html },
-                    // Cada destinatário em cópia oculta: um aviso de OS não é
-                    // uma conversa, e ninguém precisa ver a lista dos outros.
-                    toRecipients: [{ emailAddress: { address: REMETENTE } }],
-                    bccRecipients: destinos.map(e => ({ emailAddress: { address: e } }))
-                },
-                saveToSentItems: true
+                message: Object.assign(
+                    {
+                        subject: assunto,
+                        body: { contentType: 'HTML', content: html }
+                    },
+                    // COM UM DESTINATÁRIO, ele vai no "Para" e mais ninguém
+                    // recebe. A maioria dos avisos é assim (a solicitação de
+                    // OS vai só para o responsável), e a versão anterior
+                    // mandava tudo em cópia oculta com a CAIXA REMETENTE no
+                    // "Para" — ou seja, o dono da caixa recebia uma cópia de
+                    // cada aviso do sistema inteiro.
+                    destinos.length === 1
+                        ? { toRecipients: [{ emailAddress: { address: destinos[0] } }] }
+                    // COM VÁRIOS, a cópia oculta continua: um aviso de OS não
+                    // é uma conversa, e ninguém precisa ver a lista dos outros.
+                        : {
+                            toRecipients: [{ emailAddress: { address: REMETENTE } }],
+                            bccRecipients: destinos.map(e => ({ emailAddress: { address: e } }))
+                        }
+                ),
+                // Sem guardar em "Itens Enviados": são avisos automáticos, e
+                // encher a caixa de quem empresta o endereço não ajuda ninguém.
+                saveToSentItems: false
             })
         });
 
@@ -229,8 +243,19 @@ async function destinatarios(pool, tipo, opcoes) {
         lista = lista.filter(u => nomes.has(String(u.nome || '').trim().toLowerCase()));
     }
 
-    // Quem fez a ação não precisa ser avisado dela.
-    if (o.excluirId != null) lista = lista.filter(u => String(u.id) !== String(o.excluirId));
+    // Quem fez a ação não precisa ser avisado dela — MAS só quando o aviso é
+    // para um grupo.
+    //
+    // Tendo destinatário escolhido a dedo (o responsável indicado na OS, por
+    // exemplo), ele recebe mesmo sendo quem agiu: solicitar uma OS e indicar
+    // A SI MESMO como responsável é comum, e nesse caso o aviso é a tarefa
+    // "aprove isto", não um "você fez isto". Antes o e-mail simplesmente não
+    // saía para ninguém nesse caso.
+    const temAlvoEscolhido = (Array.isArray(o.somenteIds) && o.somenteIds.length)
+                          || (Array.isArray(o.somenteNomes) && o.somenteNomes.length);
+    if (o.excluirId != null && !temAlvoEscolhido) {
+        lista = lista.filter(u => String(u.id) !== String(o.excluirId));
+    }
 
     return lista;
 }
@@ -398,14 +423,12 @@ const MONTADORES = {
             campos: [
                 ['Número da OS', esc(numeroOS(os))],
                 ['Cliente', esc(os.cliente || '—')],
-                ['Obra', esc(os.obra || os.cliente || '—')],
                 ['Responsável pela obra', esc(os.responsavel || '—')],
                 ['Solicitado por', esc(d.solicitante || '—')],
                 ['Início da obra', esc(data(os.data_inicio))],
                 ['Término previsto', esc(data(os.data_fim))],
-                ['Ativos solicitados', esc(itens || '—')],
+                ['Ferramentas solicitadas', esc(itens || '—')],
                 ['Total de itens', esc(String(d.totalItens ?? '—'))],
-                ['Baia(s)', esc(d.baias || '—')],
                 ['Observações', esc(os.observacoes || '—')],
                 ['Enviada em', esc(dataHora(os.created_at || new Date()))]
             ],

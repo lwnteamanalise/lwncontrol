@@ -250,10 +250,10 @@ const PERMISSOES_MODULOS = [
     // "Estou passando", e ele cai na aba "Aprovar" de quem tem esta permissão.
     // Nada sai da obra antes desse aval.
     ['aprovar_remanejamento', 'Aprovar remanejamento'],
-    // Sem ela o botão "Adicionar" some e o que for TECLADO À MÃO (ou colado)
-    // no campo é descartado. BIPAR continua liberado para todo mundo: o
-    // leitor físico de código de barras e a câmera adicionam sozinhos.
-    ['bipagem_manual', 'Digitar/colar código na bipagem (o leitor e a câmera continuam livres)'],
+    // A permissão "bipagem_manual" (digitar/colar o código à mão) foi
+    // removida da lista: DIGITAR deixou de ser uma opção para qualquer cargo.
+    // Todo código entra pela câmera ou pelo leitor físico — é o que garante
+    // que a TAG registrada é a que estava na mão de quem bipou.
     ['concluidos', 'OS Concluídas'],
     ['certificados', 'Certificados'],
     ['baias', 'Localização'],
@@ -269,7 +269,11 @@ const PERMISSOES_MODULOS = [
     ['manutencao_somente_leitura', 'Manutenção — apenas visualizar'],
     ['logs', 'Logs de Atividade'],
     ['alterar_cargo', 'Alterar Cargo/Função de Colaborador'],
-    ['gerenciar_cargos', 'Criar/Editar Cargos']
+    ['gerenciar_cargos', 'Criar/Editar Cargos'],
+    // Cadastrar o ROSTO de um colaborador (tela de Colaboradores). Quem
+    // cadastra faz isso com a pessoa na frente, e responde pelo cadastro —
+    // por isso é permissão de cargo, e não algo que cada um faz por si.
+    ['cadastrar_facial', 'Cadastrar facial (reconhecimento de rosto)']
 ];
 
 // ============================================================
@@ -357,12 +361,15 @@ const PERMISSOES_HERDADAS = [
     // Aprovar remanejamento: quem já administrava as OS decide, até que a
     // permissão seja marcada explicitamente em algum cargo.
     ['aprovar_remanejamento', ['gerenciar_os', 'aprovar_todas_os']],
-    // Digitar o código na bipagem era o comportamento de todo mundo antes
-    // desta permissão existir — quem já bipava continua podendo digitar.
-    ['bipagem_manual', ['separar_tags', 'gerenciar_os']],
+    // (a herança de "bipagem_manual" saiu junto com a permissão)
     // Prorrogar era um ato direto: quem já podia prorrogar continua decidindo
     // (agora aprovando o pedido), para nenhuma OS ficar sem quem aceite.
-    ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']]
+    ['aceitar_prorrogacao', ['gerenciar_os', 'aprovar_todas_os', 'prorrogar_os']],
+    // Cadastrar o rosto de um colaborador nasce para quem já administra os
+    // colaboradores — é na tela deles que o cadastro acontece. Sem esta linha,
+    // a permissão nova não apareceria em nenhum cargo já configurado, e o
+    // botão não existiria para ninguém até alguém marcá-lo à mão.
+    ['cadastrar_facial', ['usuarios']]
     // As permissões de NOTIFICAÇÃO ficam de fora desta lista de propósito: a
     // herança delas é decidida no servidor, na hora de escolher quem recebe
     // (api/email.js -> destinatarios), e não copiada para o cargo. Herdá-las
@@ -443,11 +450,64 @@ function podeGerenciarCargos() {
 }
 window.podeGerenciarCargos = podeGerenciarCargos;
 
+// ============================================================
+// HERANÇA VIVA DE UMA PERMISSÃO NOVA
+//
+// PERMISSOES_HERDADAS só vale para cargo AINDA NÃO CONFIGURADO (ver
+// permissoesDoCargo): num cargo já salvo vale exatamente o que está salvo,
+// e é assim que tem de ser — senão desmarcar não desmarcaria nada.
+//
+// O efeito colateral é que uma permissão NOVA nasce inexistente para todo
+// mundo: nenhum cargo configurado a tem, e ninguém consegue usá-la até
+// alguém abrir cargo por cargo e marcá-la. Foi o que aconteceu com
+// "Cadastrar facial": o botão aparecia e recusava.
+//
+// `ninguemTem` responde "esta permissão já foi configurada por alguém?".
+// Enquanto a resposta for não, quem já responde pelo assunto pode usá-la.
+// Marcada a primeira vez em qualquer cargo, a herança some.
+// ============================================================
+function ninguemTemAPermissao(chave) {
+    try {
+        // Nos cargos configurados na tela de Cargos...
+        const mapa = carregarPermissoesCargos() || {};
+        for (const cargo of Object.keys(mapa)) {
+            if (Array.isArray(mapa[cargo]) && mapa[cargo].includes(chave)) return false;
+        }
+        // ...e no que está gravado em cada colaborador.
+        const lista = (typeof users !== 'undefined' ? users : []) || [];
+        for (const u of lista) {
+            let p = u && u.permissoes;
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { p = null; } }
+            if (Array.isArray(p) && p.includes(chave)) return false;
+            if (p && typeof p === 'object' && p[chave]) return false;
+        }
+        return true;
+    } catch (e) {
+        return false;   // na dúvida, NÃO libera por herança
+    }
+}
+window.ninguemTemAPermissao = ninguemTemAPermissao;
+
+// Tem a permissão, OU ninguém a tem ainda e ele tem a permissão "mãe".
+function temPermissaoOuHerda(chave, mae) {
+    if (typeof usuarioTemPermissao !== 'function') return false;
+    if (usuarioTemPermissao(chave)) return true;
+    return ninguemTemAPermissao(chave) && usuarioTemPermissao(mae);
+}
+window.temPermissaoOuHerda = temPermissaoOuHerda;
+
 // Mostra/esconde os controles de cargo conforme a permissão
 function aplicarPermissaoGerenciarCargos() {
     const pode = podeGerenciarCargos();
     document.querySelectorAll('[data-perm="gerenciar_cargos"]').forEach(el => {
         el.style.display = pode ? '' : 'none';
+    });
+
+    // O botão do cadastro facial some para quem não pode usá-lo. Antes ele
+    // aparecia para todos e só recusava no clique, o que parecia defeito.
+    const podeFacial = typeof podeCadastrarFacial === 'function' && podeCadastrarFacial();
+    document.querySelectorAll('[data-perm="cadastrar_facial"]').forEach(el => {
+        el.style.display = podeFacial ? '' : 'none';
     });
 }
 window.aplicarPermissaoGerenciarCargos = aplicarPermissaoGerenciarCargos;
@@ -474,6 +534,90 @@ window.renderCargoResponsavelHtml = renderCargoResponsavelHtml;
 // padrão antigo trazia todas as permissões já marcadas, e quem criava um
 // cargo restrito precisava desmarcar 20 caixas antes de marcar as 2 que
 // queria. Agora se marca uma a uma.
+// ============================================================
+// COPIAR AS PERMISSÕES DE OUTRO CARGO
+//
+// Um cargo novo quase nunca nasce do zero: ele é "o Técnico, mas sem mexer
+// em OS" ou "o Almoxarife, mais os Logs". Marcar 25 caixas à mão para depois
+// desmarcar duas é trabalho à toa — e é onde se erra.
+//
+// O select COPIA e para por aí: ele preenche as caixas e não vincula os dois
+// cargos. Mudar o Técnico depois não mexe em quem copiou dele; o que veio
+// junto pode ser ajustado antes de salvar. Herdar de verdade criaria uma
+// relação invisível entre cargos, e ninguém entenderia por que um cargo mudou
+// sozinho.
+// ============================================================
+function renderCopiarPermissoesHtml(cargo, prefixo) {
+    // O próprio cargo fica fora da lista: copiar de si mesmo não faz nada.
+    const outros = (typeof listarCargos === 'function' ? listarCargos() : [])
+        .filter(c => c && c !== cargo)
+        .sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'));
+
+    if (!outros.length) return '';
+
+    const opcoes = outros.map(c =>
+        '<option value="' + escaparAtributo(c) + '">' + escaparTexto(c) + '</option>'
+    ).join('');
+
+    return '<div class="form-group" style="margin-bottom:1rem;">'
+        + '<label class="form-label" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.25rem;">'
+        + 'Copiar permissões de outro cargo'
+        + '</label>'
+        + '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem;">'
+        + 'Marca as caixas abaixo com o que o cargo escolhido tem. Depois é só ajustar.'
+        + '</div>'
+        + '<select class="form-select" id="' + prefixo + 'copiar-de"'
+        + ' onchange="copiarPermissoesDeCargo(this.value, \'' + prefixo + '\'); this.value = \'\';"'
+        + ' style="width:100%;padding:0.5rem 0.7rem;font-size:0.82rem;border:2px solid var(--border-color);'
+        + 'border-radius:0.5rem;background:var(--bg-input);color:var(--text-main);">'
+        + '<option value="">— Selecione um cargo para copiar —</option>'
+        + opcoes
+        + '</select>'
+        + '</div>';
+}
+window.renderCopiarPermissoesHtml = renderCopiarPermissoesHtml;
+
+// Marca as caixas com o que o cargo de origem tem, e DESMARCA o resto: copiar
+// precisa deixar o formulário igual ao original, senão o que já estava
+// marcado antes se somaria à cópia e o resultado não seria nem um nem outro.
+function copiarPermissoesDeCargo(cargoOrigem, prefixo) {
+    if (!cargoOrigem) return;
+    const permissoes = permissoesDoCargo(cargoOrigem) || [];
+    const tem = new Set(permissoes);
+    const todas = PERMISSOES_MODULOS.concat(PERMISSOES_NOTIFICACAO);
+
+    let marcadas = 0;
+    todas.forEach(([chave]) => {
+        const el = document.getElementById(prefixo + chave);
+        if (!el) return;
+        // '*' é acesso total: quem copia de um cargo assim recebe tudo.
+        el.checked = tem.has('*') || tem.has(chave);
+        if (el.checked) marcadas++;
+    });
+
+    // "Responsável por obra" não é permissão, mas acompanha o cargo — copiar
+    // sem ele deixaria o cargo novo fora da lista de responsáveis sem aviso.
+    const caixaResp = document.getElementById(prefixo + 'responsavel_obra');
+    if (caixaResp && typeof cargoEhResponsavelPorObra === 'function') {
+        caixaResp.checked = cargoEhResponsavelPorObra(cargoOrigem);
+    }
+
+    if (typeof showToast === 'function') {
+        showToast(marcadas + ' permissão(ões) copiada(s) de "' + cargoOrigem + '". Ajuste o que precisar antes de salvar.', 'success');
+    }
+}
+window.copiarPermissoesDeCargo = copiarPermissoesDeCargo;
+
+// Escapes locais: este arquivo tem várias funções de escape espalhadas, e
+// depender de qual delas já foi definida neste ponto do arquivo é frágil.
+function escaparTexto(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escaparAtributo(t) {
+    return escaparTexto(t).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderCargoPermissoesHtml(cargo, prefixo, opcoes) {
     const atuais = (opcoes && opcoes.vazio) ? [] : permissoesDoCargo(cargo);
     const itens = PERMISSOES_MODULOS.map(([chave, rotulo]) => (
@@ -490,6 +634,7 @@ function renderCargoPermissoesHtml(cargo, prefixo, opcoes) {
     )).join('');
 
     return renderCargoResponsavelHtml(cargo, prefixo)
+        + renderCopiarPermissoesHtml(cargo, prefixo)
         + '<div class="form-group" style="margin-bottom:1.25rem;">'
         + '<label class="form-label" style="display:block;font-size:0.8rem;font-weight:700;color:var(--text-main);margin-bottom:0.4rem;">Permissões do Cargo</label>'
         + '<div class="cargo-perms-box">' + itens + '</div>'
@@ -1005,13 +1150,18 @@ function usuarioPodeAceitarProrrogacao() {
 }
 window.usuarioPodeAceitarProrrogacao = usuarioPodeAceitarProrrogacao;
 
-// DIGITAR o código é privilégio; BIPAR não. Sem esta permissão o botão
-// "Adicionar" some e o que for teclado à mão no campo é descartado — mas o
-// leitor físico de código de barras e a câmera continuam adicionando sozinhos
-// (ver lwnObservarBipagem, modo "somenteLeitor").
+// NINGUÉM digita código de bipagem — nem quem administra o sistema.
+//
+// Isto era uma permissão de cargo ("bipagem_manual"): quem a tivesse podia
+// teclar a TAG à mão. Ela saiu porque digitar derrota o propósito de bipar —
+// a TAG registrada deixa de ser prova de que a ferramenta estava ali. Agora
+// o código entra SÓ pela câmera ou pelo leitor físico.
+//
+// A função continua existindo (várias telas a consultam para montar o
+// campo) e agora responde sempre "não". Removê-la exigiria mexer em cinco
+// telas de bipagem para ganhar nada.
 function usuarioPodeDigitarBipagem() {
-    if (typeof usuarioTemPermissao !== 'function') return true;
-    return usuarioTemPermissao('bipagem_manual');
+    return false;
 }
 window.usuarioPodeDigitarBipagem = usuarioPodeDigitarBipagem;
 
@@ -1213,7 +1363,13 @@ async function carregarUsuarios() {
         if (!resposta.ok) throw new Error("Erro ao buscar usuários: " + resposta.status);
         users = await resposta.json();
         console.log("Usuários carregados:", users.length);
-        
+
+        // Quem tem rosto cadastrado, para a coluna "Face ID" da tabela. Uma
+        // chamada só, antes de desenhar — perguntar por linha faria 38.
+        if (typeof facialCarregarCadastrados === 'function') {
+            await facialCarregarCadastrados();
+        }
+
         renderUsuariosTable('usuarios-tbody');
         renderUsuariosTable('config-usuarios-tbody');
         if (typeof atualizarFiltroCargos === 'function') atualizarFiltroCargos();
@@ -2809,15 +2965,18 @@ function renderUsuariosTable(targetId) {
     }
 
     if (!users || users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum usuário cadastrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum usuário cadastrado.</td></tr>`;
         return;
     }
 
     if (listaUsuarios.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum colaborador com o cargo selecionado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6"style="text-align:center;padding:1.5rem;color:var(--text-muted);">Nenhum colaborador com o cargo selecionado.</td></tr>`;
         return;
     }
 
+    // O cadastro do rosto NÃO fica mais na linha do colaborador: ele mora no
+    // painel aberto pelo botão "Cadastrar facial", ao lado de "Editar
+    // Colaboradores". Aqui a coluna Face ID só MOSTRA quem tem.
     tbody.innerHTML = listaUsuarios.map(u => {
         // Nome com ícones à esquerda (apenas se modo edição ativo)
         let nomeHtml = u.nome;
@@ -2889,14 +3048,10 @@ function renderUsuariosTable(targetId) {
         badgeClass = 'badge-cargo';
         badgeStyle = `background: color-mix(in srgb, ${corCargo} 14%, transparent); color: ${corCargo}; font-weight:700; border:none;`;
 
-        // "Gerar Código" saiu daqui.
-        //
-        // Redefinir senha dependia de um administrador ler um número na tela e
-        // passar para a pessoa por telefone. Agora o próprio colaborador pede,
-        // na tela de login ("Esqueceu sua senha?"), e o código de 6 dígitos vai
-        // direto para o e-mail cadastrado dele — ninguém mais precisa
-        // intermediar, e o código não passa por WhatsApp.
-        const acoesHtml = '';
+        // A coluna "Ações" não existe mais nesta tabela. Ela tinha um botão só,
+        // o "Gerar Código", e ele saiu quando a redefinição de senha passou a
+        // ser feita pelo próprio colaborador na tela de login — o código de 6
+        // dígitos vai direto para o e-mail dele, sem ninguém intermediar.
 
         return `
             <tr>
@@ -2915,9 +3070,7 @@ function renderUsuariosTable(targetId) {
                     ${permissoesTexto}
                 </td>
                 <td><span class="badge ${u.ativo !== false ? 'badge-success' : 'badge-danger'}">${u.ativo !== false ? 'Ativo' : 'Inativo'}</span></td>
-                <td style="text-align: center; white-space:nowrap;">
-                    ${acoesHtml}
-                </td>
+                <td style="text-align:center;">${typeof facialSeloHtml === 'function' ? facialSeloHtml(u.id) : ''}</td>
             </tr>
         `;
     }).join('');
@@ -9006,13 +9159,34 @@ function mostrarAvisoTrocaSenha() {
                         style="padding:0.5rem 1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-muted);font-size:0.82rem;cursor:pointer;">Não me mostrar novamente</button>
                 <button type="button" class="btn btn-outline" onclick="fecharAvisoSenha()"
                         style="padding:0.5rem 1rem;border:1px solid var(--border-color);border-radius:0.5rem;background:transparent;color:var(--text-main);font-size:0.82rem;cursor:pointer;">Agora não</button>
-                <button type="button" class="btn btn-primary" onclick="fecharAvisoSenha();window.open('redefinir-senha.html','_blank');"
+                <button type="button" class="btn btn-primary" onclick="irTrocarSenha()"
                         style="padding:0.5rem 1.1rem;border:none;border-radius:0.5rem;background:var(--primary);color:#fff;font-weight:700;font-size:0.82rem;cursor:pointer;">Trocar agora</button>
             </div>
         </div>`;
     document.body.appendChild(modal);
 }
 window.mostrarAvisoTrocaSenha = mostrarAvisoTrocaSenha;
+
+// Leva para a troca de senha, que acontece na tela de LOGIN (o pop-up de
+// três passos, o mesmo do "Esqueceu sua senha?"). A página separada de
+// redefinição deixou de existir.
+//
+// Sair da sessão faz parte: redefinir a senha encerra as sessões salvas de
+// qualquer jeito, então manter o app aberto atrás seria enganoso.
+function irTrocarSenha() {
+    fecharAvisoSenha();
+    let email = '';
+    try { email = (JSON.parse(sessionStorage.getItem('lwn_user') || '{}').email) || ''; } catch (e) {}
+    try {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'lwn-trocar-senha', email }, '*');
+            return;
+        }
+    } catch (e) { /* cai no reserva abaixo */ }
+    // Fora do iframe (alguém abriu o app direto): a tela de login resolve.
+    window.location.href = '../index.html';
+}
+window.irTrocarSenha = irTrocarSenha;
 
 // Inicializar quando a página carregar
 document.addEventListener('DOMContentLoaded', initApp);
@@ -9061,9 +9235,10 @@ document.addEventListener('visibilitychange', () => {
 // ============================================================
 // ATUALIZAR SAUDAÇÃO COM NOME DO USUÁRIO
 // ============================================================
+// O avatar com as iniciais que ficava antes de "Ótimo dia" foi removido: a
+// saudação é só o texto. A foto da conta Microsoft continua sendo trazida no
+// login e guardada em usuarios.foto — ela só não é mais desenhada aqui.
 function atualizarSaudacao() {
-    // O avatar ao lado da saudação foi removido. Esta linha limpa o que uma
-    // aba aberta desde antes da mudança ainda tenha na tela.
     try {
         const user = JSON.parse(sessionStorage.getItem('lwn_user') || '{}');
         const nome = user.nome || 'Usuário';
@@ -9134,7 +9309,7 @@ const PERMISSOES_FORM = [
     ['gerenciar_os', 'gerenciar_os'],
     ['prorrogar_os', 'prorrogar_os'],
     ['aprovar_remanejamento', 'aprovar_remanejamento'],
-    ['bipagem_manual', 'bipagem_manual'],
+
     ['concluidos', 'concluidos'],
     ['certificados', 'certificados'],
     ['baias', 'baias'],
@@ -14161,10 +14336,9 @@ function showRemMode(mode) {
 // ============================================================
 // CAMPO DE BIPAGEM DO REMANEJAMENTO
 //
-// Mesma regra da Retirada e da Devolutiva: DIGITAR o código é permissão
-// ("bipagem_manual") — BIPAR não é. Sem a permissão, o botão "Adicionar" não
-// existe e o que for teclado à mão é descartado, mas o LEITOR FÍSICO continua
-// escrevendo no campo e a ferramenta entra sozinha, igual à câmera.
+// Mesma regra da Retirada e da Devolutiva: NINGUÉM digita o código. O botão
+// "Adicionar" não existe e o que for teclado à mão é descartado; o que entra
+// é o LEITOR FÍSICO (que escreve no campo como um teclado) e a câmera.
 //
 // O Enter não vem mais de um `onkeydown` no HTML: quem confirma a leitura é
 // lwnObservarBipagem (via remLigarLeitor), que é justamente quem sabe separar
@@ -14188,12 +14362,7 @@ function remCampoBipagemHTML(idInput, nomeFuncao) {
             <button type="button" class="btn btn-outline btn-sm" style="padding:0.4rem 1rem;"
                     onclick="abrirScannerCampo('${idInput}', ${nomeFuncao})">Usar câmera</button>
         </div>
-        ${podeDigitar ? '' : `
-        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
-            A <strong>digitação</strong> do código está bloqueada para o seu cargo — a bipagem, não.
-            Bipe com o <strong>leitor de código de barras</strong> ou toque em <strong>Usar câmera</strong>:
-            a ferramenta é reconhecida e adicionada automaticamente.
-        </div>`}`;
+        `;
 }
 window.remCampoBipagemHTML = remCampoBipagemHTML;
 

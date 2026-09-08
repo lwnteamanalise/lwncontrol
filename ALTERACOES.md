@@ -55,6 +55,18 @@
 38. Logs: o que faltava passou a ser registrado
 39. Recuperação de senha: o código vai para o e-mail
 40. Ajustes de 04/09 (segunda rodada)
+41. O rosto agora é cadastrado **no site**, não no aparelho
+42. E-mail: o que faltava era o remetente
+43. Redefinição de senha: e-mail não cadastrado é recusado
+44. Ajustes de 08/09
+45. A prova de vida virou **movimento da cabeça**
+46. O cadastro facial foi para **Colaboradores**
+47. Ajustes de 08/09 (segunda rodada)
+48. "Cadastrar facial" virou uma tela própria
+49. O remetente do e-mail é a caixa principal da empresa
+50. As notificações não saíam para quem solicitava a própria OS
+51. "Esqueceu sua senha?" virou um pop-up na própria tela
+52. Ajustes de texto
 
 **Banco de dados** — resumo das colunas e rotas novas
 
@@ -989,3 +1001,266 @@ menos numa faixa de ~6px à direita (a barra de rolagem da página de trás) —
 scroll do fundo agora é travado enquanto o termo está aberto. E tudo **cabe sem
 rolar**: o cartão virou três faixas (topo, miolo rolável, rodapé), com o check
 "Estou de acordo" e o "Confirmar" sempre à vista, no desktop e no celular.
+
+---
+
+## 41. O rosto agora é cadastrado **no site**, não no aparelho (08/09)
+
+A versão anterior usava o **Face ID do celular** (WebAuthn): a credencial ficava
+presa àquele telefone. Servia para a pessoa entrar no próprio aparelho — e não
+era isso que o almoxarifado precisava.
+
+Agora o rosto é cadastrado **no sistema**. Um micro na bancada, várias pessoas:
+cada uma chega, olha para a câmera, o sistema descobre **quem é** e entra na
+conta dela; ela sai, a próxima olha e entra na dela. **Como uma catraca.**
+
+**Como o rosto vira número.** O navegador detecta o rosto, alinha pelos 68
+pontos e gera um **descritor**: 128 números que descrevem aquele rosto. É só
+isso que trafega e é guardado — **não há foto no banco**, e não se remonta um
+rosto a partir dos 128 números.
+
+**Como se compara.** Distância entre descritores, com duas exigências:
+
+| | |
+|---|---|
+| distância < **0,48** | mais rígido que o padrão de 0,6 da biblioteca — errar aqui é entrar na conta de outra pessoa |
+| 2º colocado **0,06 atrás** | sem isso, dois rostos parecidos dariam empate e o desempate seria por sorte |
+
+Não batendo, o sistema diz *"não consegui ter certeza de quem é"* e manda usar
+a senha — preferir o "não sei" ao palpite.
+
+**O cadastro guarda 5 leituras**, em instantes diferentes, para aguentar
+variação de luz, óculos e ângulo. E **um rosto só pode pertencer a uma pessoa**:
+tentar cadastrar um rosto que já é de outro colaborador é recusado com o nome
+de quem já o tem.
+
+### A piscada
+
+Antes de aceitar qualquer leitura, o navegador **exige uma piscada**. Ele
+acompanha a abertura dos olhos quadro a quadro e só libera quando ela cai e
+volta. Isso derruba foto impressa e foto na tela do celular.
+
+> **Limitação, escrita de propósito:** isso **não** derruba um vídeo da pessoa
+> piscando. Reconhecimento facial por câmera comum é conveniência, não barreira
+> forte. Para um site interno, com todo acesso registrado nos Logs, é adequado —
+> mas a senha continua existindo, e é ela que protege o que for sensível.
+
+A biblioteca (`@vladmandic/face-api`) e os modelos vêm do jsDelivr: a primeira
+leitura baixa ~4 MB, as seguintes não baixam nada.
+
+---
+
+## 42. E-mail: o que faltava era o remetente (08/09)
+
+As notificações não chegavam por **uma** variável em branco: `OUTLOOK_REMETENTE`,
+a caixa de onde os e-mails saem. Sem ela o módulo ficava inerte de propósito, e
+a redefinição de senha respondia *"Não foi possível enviar o e-mail agora"* —
+que era literalmente verdade.
+
+Configurado `luis@lwnengenharia.com.br` como remetente (não existe caixa
+`naoresponda@` no tenant — vale criar uma depois e trocar a variável) e
+`APP_URL` como `https://lwncontrol.vercel.app`. Os **sete** tipos de aviso foram
+enviados de verdade e chegaram.
+
+**Ajuste no envio:** com **um** destinatário, ele vai no "Para" e mais ninguém
+recebe. A versão anterior mandava tudo em cópia oculta com a caixa remetente no
+"Para" — ou seja, o dono da caixa recebia uma cópia de cada aviso do sistema
+inteiro. Com vários destinatários a cópia oculta continua, para ninguém ver a
+lista dos outros.
+
+---
+
+## 43. Redefinição de senha: e-mail não cadastrado é recusado (08/09)
+
+A versão anterior respondia *"se este cadastro existir, enviamos o código"*
+mesmo para e-mail inexistente — é a prática que evita a rota virar um jeito de
+descobrir quem trabalha na empresa.
+
+Como o site é interno, só de funcionários, o silêncio custava mais do que
+protegia: quem digitava o e-mail pessoal por engano ficava esperando um código
+que nunca vinha. Agora a resposta é direta:
+
+> Este e-mail ou CPF não está cadastrado no sistema. Confira o que você digitou
+> ou fale com o responsável para a inclusão do seu cadastro.
+
+---
+
+## 44. Ajustes de 08/09
+
+**Copiar permissões de outro cargo.** Um select no topo do cargo marca as caixas
+com o que o cargo escolhido tem — e **desmarca o resto**, para o resultado ser o
+original e não uma mistura. Ele **copia e para por aí**: mudar o Técnico depois
+não mexe em quem copiou dele. Herdar de verdade criaria uma relação invisível
+entre cargos, e ninguém entenderia por que um cargo mudou sozinho.
+
+**"Digitar/colar código na bipagem" foi removida.** Digitar derrota o propósito
+de bipar — a TAG registrada deixa de ser prova de que a ferramenta estava ali.
+Agora o código entra **só pela câmera ou pelo leitor**, para todo mundo,
+inclusive quem administra o sistema.
+
+**A coluna "Ações" saiu de Colaboradores.** Ela existia só para o botão "Gerar
+Código", que já tinha sido removido — desde então era uma coluna vazia.
+
+**O botão do Face ID voltou para o canto inferior direito** no desktop. No
+celular ele continua mais acima, porque lá existe uma barra de abas fixa embaixo.
+
+---
+
+## 45. A prova de vida virou **movimento da cabeça** (08/09)
+
+A versão anterior pedia uma **piscada** — e não funcionava. A piscada dura
+~150 ms; entre um quadro analisado e o seguinte passa mais tempo que isso, então
+o olho fechado quase nunca caía num quadro examinado. A pessoa piscava várias
+vezes e a tela não saía do lugar.
+
+Agora pede-se **mexer a cabeça**: para os lados e para cima e para baixo. Isso
+dura segundos e aparece em dezenas de quadros seguidos — é impossível não
+detectar.
+
+**Como é medido.** Onde a **ponta do nariz** está dentro do quadrado do rosto
+(0 a 1 nos dois eixos). Virar a cabeça move o nariz na horizontal; balançar move
+na vertical. Exige-se amplitude nos **dois** eixos — assim uma foto sendo
+sacudida na frente da câmera não passa, porque nela o nariz não se move *dentro*
+do rosto: o rosto inteiro é que anda.
+
+| | |
+|---|---|
+| horizontal | 10% da largura do rosto |
+| vertical | 7% da altura |
+| quadros mínimos | 8 |
+
+Medido contra o próprio rosto, e não contra a tela, o número vale igual para
+quem está perto ou longe da câmera. Uma **barrinha de progresso** mostra o
+quanto falta, e o texto muda conforme o que já foi feito ("Isso! Agora incline a
+cabeça para cima e para baixo").
+
+---
+
+## 46. O cadastro facial saiu do botão flutuante e foi para **Colaboradores** (08/09)
+
+O botão flutuante no canto da tela sumiu — do desktop e do celular. O cadastro
+agora vive onde faz sentido: na tela de **Colaboradores**, ao lado de Editar e
+Excluir, no modo de edição.
+
+Quem cadastra não é a própria pessoa: é **quem tem a permissão**, com o
+colaborador ali na frente da câmera. O cadastro é feito uma vez, com a pessoa
+presente, e quem faz responde por ele.
+
+**Permissão nova: "Cadastrar facial".** Ela nasce para quem já administra os
+colaboradores (permissão `usuarios`) — sem essa herança, a permissão nova não
+apareceria em nenhum cargo já configurado e o botão não existiria para ninguém.
+
+**Coluna "Face ID"**, à direita de Status, com **✓** para quem tem rosto
+cadastrado e **✗** para quem não tem. A lista de quem tem vem numa chamada só,
+antes de desenhar — perguntar por linha faria 38 requisições para pintar uma
+coluna. E **"Status Conta" virou "Status"**.
+
+---
+
+## 47. Ajustes de 08/09 (segunda rodada)
+
+**A permissão "Digitar/colar código na bipagem" saiu de vez.** Ela ainda
+aparecia na tela porque a versão anterior estava só no repositório, não no ar.
+
+**E-mail: o remetente.** O envio sempre foi pela API da empresa (Microsoft
+Graph, com as credenciais do aplicativo "Almoxarife" e consentimento do
+administrador). O `OUTLOOK_REMETENTE` não é "de qual conta pessoal sai" — é
+**qual caixa do tenant assina** a mensagem, e a Microsoft exige uma. Não existe
+`naoresponda@` no domínio; enquanto não existir, a caixa configurada é a que
+aparece como remetente.
+
+---
+
+## 48. "Cadastrar facial" virou uma tela própria (08/09)
+
+O cadastro era um botão na **linha** de cada colaborador, e só aparecia no modo
+de edição: para cadastrar alguém era preciso ligar o modo de edição, achar a
+linha e clicar.
+
+Agora é um botão **ao lado de "Editar Colaboradores"**, que abre uma tela onde
+ficam as duas perguntas que se faz na prática:
+
+- **quem já tem rosto cadastrado** — a lista, com **Excluir** ao lado de cada um;
+- **quero cadastrar fulano** — um campo com quem ainda não tem, e o botão Cadastrar.
+
+Cadastrando ou excluindo, a tela **se redesenha** com a lista já atualizada:
+quem cadastrou um provavelmente vai cadastrar o próximo.
+
+O modal da câmera ficou só com o essencial — os dois blocos de texto explicativo
+saíram.
+
+**A coluna "Face ID"** continua na tabela, com ✓ para quem tem e ✗ para quem não
+tem, e acompanha cada cadastro e exclusão.
+
+---
+
+## 49. O remetente do e-mail é a **caixa principal da empresa** (08/09)
+
+Estava configurado `luis@`, uma caixa pessoal. Trocado para
+`lwnteamanalise@lwnengenharia.com.br` — a mesma que o outro sistema da empresa
+já usa.
+
+Vale registrar o que o `OUTLOOK_REMETENTE` é, porque o nome confunde: **não** é
+"de qual conta pessoal o sistema envia". O envio sempre foi pela API da empresa
+(Microsoft Graph, credenciais do aplicativo, consentimento do administrador). A
+variável diz **qual caixa do tenant assina** a mensagem — e a Microsoft exige
+uma, não existe enviar sem remetente.
+
+---
+
+## 50. As notificações não saíam para quem solicitava a própria OS (08/09)
+
+Solicitar uma OS e indicar **a si mesmo** como responsável não gerava e-mail
+nenhum. Era o `excluirId`, a regra "quem fez a ação não precisa ser avisado
+dela": sendo o solicitante *e* o responsável, a pessoa era removida da própria
+lista e não sobrava ninguém.
+
+A regra faz sentido para um aviso de **grupo** — quem pediu um remanejamento não
+precisa receber o e-mail que ele mesmo disparou. Mas quando o destinatário foi
+**escolhido a dedo** (o responsável indicado na OS), ele recebe mesmo tendo sido
+quem agiu: ali o e-mail é a tarefa *"aprove isto"*, não um *"você fez isto"*.
+
+Agora o `excluirId` só vale quando não há destinatário escolhido. Testado pelo
+caminho real — OS criada com o mesmo usuário nas duas pontas, e o servidor
+registrou `email[os_solicitada] {"enviados":1}`.
+
+---
+
+## 51. "Esqueceu sua senha?" virou um pop-up na própria tela (08/09)
+
+Antes o link abria outra página. Sair do login para voltar depois é uma viagem à
+toa — quem esqueceu a senha já está no lugar certo.
+
+Agora é um pop-up de três passos, sem navegação nenhuma:
+
+| | |
+|---|---|
+| 1 | e-mail ou CPF → o código de 6 dígitos sai para o e-mail cadastrado |
+| 2 | o código |
+| 3 | a senha nova |
+
+O código **não** é conferido no passo 2: quem confere é o passo 3, junto com a
+senha, num pedido só. Conferir antes gastaria o código (ele vale uma vez) e a
+pessoa ficaria travada entre os dois passos. Errando o código, a tela volta ao
+passo 2 com a mensagem — que é onde ela resolve.
+
+A página `almoxarife/redefinir-senha.html` foi **removida**. O aviso "troque a
+sua senha padrão", que abria aquela página, agora leva ao mesmo pop-up: o app
+volta para o login e ele abre já com o e-mail preenchido. Sair da sessão faz
+parte — redefinir a senha encerra as sessões salvas de qualquer jeito.
+
+---
+
+## 52. Ajustes de texto (08/09)
+
+**Saiu o aviso "a digitação do código está bloqueada para o seu cargo"**, dos
+campos de bipagem da Retirada, da Devolutiva e do Remanejamento. Ele explicava
+uma permissão que não existe mais: hoje **ninguém** digita, e dizer "bloqueado
+para o seu cargo" sugeria que outro cargo poderia.
+
+**"Comece pela baia — as ferramentas só são aceitas depois dela"** virou
+**"As ferramentas só serão aceitas após a bipagem da baia."**
+
+**Na tela de login, o botão do Outlook ficou só com o quadriculado da
+Microsoft** — sem a palavra. Ele passou a ter o mesmo tamanho e formato do botão
+do rosto, e os dois leem como um par.

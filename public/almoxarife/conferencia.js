@@ -677,7 +677,7 @@ async function abrirModalConferenciaOS(osId) {
                             <span id="conf-sep-contador" style="font-size:0.76rem;font-weight:700;color:var(--primary);">0 bipada(s)</span>
                         </div>
                         <div id="conf-sep-trava" style="border:1px dashed var(--warning,#f59e0b);background:color-mix(in srgb, var(--warning,#f59e0b) 10%, transparent);border-radius:0.5rem;padding:0.55rem 0.75rem;font-size:0.8rem;font-weight:600;color:var(--warning,#f59e0b);margin-bottom:0.45rem;">
-                            Comece pela <strong>baia</strong> — as ferramentas só são aceitas depois dela.
+                            As ferramentas só serão aceitas após a bipagem da baia.
                         </div>
                         ${confCampoBipagemHTML('conf-sep-codigo', 'conf-sep-scanner-btn', 'confSepBipar()', "abrirScannerCampo('conf-sep-codigo', confSepBipar)")}
                         <div id="conf-sep-aviso" style="display:none;margin-top:0.5rem;"></div>
@@ -1715,15 +1715,16 @@ window.confPintarGridDaSessao = confPintarGridDaSessao;
 window.abrirConferenciaOS = abrirConferenciaOS;
 
 // ============================================================
-// CAMPO DE BIPAGEM — DIGITAR É PERMISSÃO, BIPAR NÃO
+// CAMPO DE BIPAGEM — SÓ CÂMERA E LEITOR, NUNCA DIGITAÇÃO
 //
-// Sem "bipagem_manual" o botão "Adicionar" não aparece e nada do que for
-// TECLADO À MÃO entra no campo. O que continua funcionando é a BIPAGEM: o
-// leitor físico de código de barras escreve no campo e a ferramenta é
-// adicionada sozinha, igual à câmera do celular.
+// O botão "Adicionar" não aparece e nada do que for TECLADO À MÃO entra no
+// campo. O que funciona é a BIPAGEM: o leitor físico de código de barras
+// escreve no campo e a ferramenta é adicionada sozinha, igual à câmera do
+// celular. Digitar derrota o propósito de bipar — a TAG registrada deixa de
+// ser prova de que a ferramenta estava ali.
 //
-// Por isso o campo fica habilitado mesmo sem a permissão: um leitor físico é
-// um teclado, e num campo `disabled`/`readonly` (como era antes) ele não
+// Por isso o campo fica HABILITADO mesmo sem aceitar digitação: um leitor
+// físico é um teclado, e num campo `disabled`/`readonly` (como era antes) ele não
 // escrevia — quem não podia digitar também não conseguia bipar no computador.
 // Quem filtra o que é leitura e o que é digitação é lwnObservarBipagem.
 //
@@ -1747,12 +1748,7 @@ function confCampoBipagemHTML(idInput, idBotaoCamera, acaoAdicionar, acaoCamera)
             ${podeDigitar ? `<button class="btn btn-primary btn-sm" style="padding:0.4rem 1rem;" onclick="${acaoAdicionar}">Adicionar</button>` : ''}
             <button class="btn btn-outline btn-sm" style="padding:0.4rem 1rem;" onclick="${acaoCamera}" id="${idBotaoCamera}">Usar câmera</button>
         </div>
-        ${podeDigitar ? '' : `
-        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">
-            A <strong>digitação</strong> do código está bloqueada para o seu cargo — a bipagem, não.
-            Bipe com o <strong>leitor de código de barras</strong> ou toque em <strong>Usar câmera</strong>:
-            a ferramenta é reconhecida e adicionada automaticamente.
-        </div>`}`;
+        `;
 }
 window.confCampoBipagemHTML = confCampoBipagemHTML;
 
