@@ -138,6 +138,79 @@ function facialGarantirEstilo() {
             background: var(--border-color); transition: background .2s ease;
         }
         #facial-modal .facial-pontinho.feito { background: var(--success, #16a34a); }
+
+        /* ---------- BLOQUEIO DO CELULAR ----------
+           Cobre a tela inteira e não fecha. z-index acima de tudo do app
+           (o maior em uso é 4100, do aviso do almoxarife). */
+        #facial-obrigatorio {
+            position: fixed; inset: 0; z-index: 9500;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; overflow-y: auto;
+            background: var(--bg-main, #f8fafc);
+        }
+        #facial-obrigatorio .fo-cartao {
+            display: flex; flex-direction: column;
+            width: 100%; max-width: 440px;
+            min-height: 100dvh;
+            background: var(--bg-card);
+        }
+        #facial-obrigatorio .fo-topo {
+            display: flex; align-items: center; gap: 0.7rem;
+            padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        #facial-obrigatorio .fo-icone { display: inline-flex; color: var(--primary); flex-shrink: 0; }
+        #facial-obrigatorio .fo-titulo { font-size: 1.05rem; font-weight: 800; color: var(--text-main); }
+        #facial-obrigatorio .fo-sub { font-size: 0.78rem; color: var(--text-muted); }
+
+        #facial-obrigatorio .fo-corpo {
+            flex: 1 1 auto; padding: 1.1rem 1.25rem; overflow-y: auto;
+        }
+        #facial-obrigatorio .fo-texto {
+            font-size: 0.86rem; line-height: 1.55; color: var(--text-main); margin: 0 0 1rem;
+        }
+        /* O vídeo nasce escondido: antes de "Começar" não há o que mostrar, e
+           um retângulo preto parado só assusta. */
+        #facial-obrigatorio video {
+            width: 100%; border-radius: 0.9rem; background: #000; display: none;
+            aspect-ratio: 3 / 4; object-fit: cover;
+            transform: scaleX(-1);   /* espelhado, como um espelho de verdade */
+            max-height: 46dvh;
+        }
+        #facial-obrigatorio video.ligado { display: block; }
+        #facial-obrigatorio .fo-barra {
+            height: 6px; border-radius: 3px; overflow: hidden;
+            background: var(--bg-surface); margin-top: 0.8rem;
+        }
+        #facial-obrigatorio .fo-barra-cheia {
+            height: 100%; width: 0%; border-radius: 3px;
+            background: var(--primary); transition: width .2s ease;
+        }
+        #facial-obrigatorio .fo-passo {
+            margin-top: 0.7rem; min-height: 2.6rem; text-align: center;
+            font-size: 0.88rem; font-weight: 700; color: var(--text-main); line-height: 1.4;
+        }
+        #facial-obrigatorio .fo-pontinhos { display: flex; gap: 0.35rem; justify-content: center; }
+        #facial-obrigatorio .fo-pontinho {
+            width: 0.6rem; height: 0.6rem; border-radius: 50%;
+            background: var(--border-color); transition: background .2s ease;
+        }
+        #facial-obrigatorio .fo-pontinho.feito { background: var(--success, #16a34a); }
+
+        #facial-obrigatorio .fo-rodape {
+            flex-shrink: 0; padding: 0.9rem 1.25rem 1.3rem;
+            border-top: 1px solid var(--border-color); background: var(--bg-surface);
+        }
+        #facial-obrigatorio .fo-botao {
+            width: 100%; padding: 0.9rem; border: none; border-radius: 0.7rem;
+            background: var(--primary); color: #fff; font-weight: 800; font-size: 0.95rem;
+            font-family: inherit; cursor: pointer;
+        }
+        #facial-obrigatorio .fo-botao:disabled { opacity: .55; cursor: default; }
+        #facial-obrigatorio .fo-aviso {
+            margin-top: 0.6rem; text-align: center;
+            font-size: 0.74rem; color: var(--text-muted);
+        }
     `;
     document.head.appendChild(estilo);
 }
@@ -500,6 +573,179 @@ async function facialAtualizarTabela() {
 }
 window.facialAtualizarTabela = facialAtualizarTabela;
 
+
+// ============================================================
+// NO CELULAR, O CADASTRO É OBRIGATÓRIO
+//
+// Quem entra pelo celular e ainda não tem rosto cadastrado não usa o sistema
+// antes de cadastrar. A tela cobre tudo e não fecha.
+//
+// POR QUE SÓ NO CELULAR
+// É onde a câmera frontal está sempre à mão e a foto sai boa. No micro da
+// bancada a câmera pode nem existir, e bloquear ali deixaria gente sem
+// conseguir trabalhar — no computador o cadastro continua sendo feito pelo
+// painel de Colaboradores, por quem tem a permissão.
+//
+// QUEM VOUCHA PELO ROSTO
+// Aqui é a própria pessoa, e não alguém com a permissão "Cadastrar facial".
+// A troca é deliberada: o cadastro acontece DEPOIS do login por senha, então
+// a conta já foi provada — é a mesma ideia de cadastrar uma chave de acesso
+// depois de entrar. Em compensação, quem estiver logado registra o rosto que
+// estiver na frente da câmera; por isso o painel de Colaboradores continua
+// existindo, e é lá que um cadastro errado é apagado.
+//
+// SE A CÂMERA NÃO ABRIR
+// A tela não libera o acesso — mas também não deixa a pessoa sem saída: ela
+// explica o que fazer e o COMPUTADOR continua livre, porque o bloqueio é só
+// do celular. Ninguém fica sem acesso ao sistema por causa de uma câmera
+// quebrada.
+// ============================================================
+
+// Celular ou tablet: largura pequena OU um agente móvel de verdade. Só a
+// largura erraria numa janela estreita no desktop; só o agente erraria num
+// tablet que se anuncia como desktop. Os dois juntos acertam os dois casos.
+function facialEhCelular() {
+    const estreito = window.matchMedia('(max-width: 820px)').matches;
+    const agenteMovel = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent || '');
+    const toque = navigator.maxTouchPoints > 0;
+    return (estreito && toque) || agenteMovel;
+}
+window.facialEhCelular = facialEhCelular;
+
+function facialUsuarioLogado() {
+    try { return JSON.parse(sessionStorage.getItem('lwn_user') || '{}'); } catch (e) { return {}; }
+}
+
+// Decide se a tela de bloqueio precisa aparecer, e a mostra.
+async function facialExigirCadastro() {
+    if (!facialEhCelular()) return;
+    if (document.getElementById('facial-obrigatorio')) return;   // já está na tela
+
+    const u = facialUsuarioLogado();
+    if (!u || !u.id) return;                      // sem sessão, quem manda é o login
+
+    // A lista pode não ter sido lida ainda (esta função roda no arranque).
+    if (!facialCadastrados.size) await facialCarregarCadastrados();
+    if (facialUsuarioTemRosto(u.id)) return;      // já cadastrou: segue a vida
+
+    if (!facialSuportado() || !window.LWNFace.contextoSeguro()) {
+        // Sem câmera possível não há como cadastrar, e travar aqui só deixaria
+        // a pessoa olhando uma tela que ela não consegue resolver.
+        console.warn('Cadastro facial obrigatório ignorado: este navegador não dá acesso à câmera.');
+        return;
+    }
+
+    facialMostrarBloqueio(u);
+}
+window.facialExigirCadastro = facialExigirCadastro;
+
+function facialMostrarBloqueio(usuario) {
+    facialGarantirEstilo();
+
+    const tela = document.createElement('div');
+    tela.id = 'facial-obrigatorio';
+    tela.innerHTML = `
+        <div class="fo-cartao">
+            <div class="fo-topo">
+                <span class="fo-icone">${FACIAL_ICONE}</span>
+                <div>
+                    <div class="fo-titulo">Cadastre o seu rosto</div>
+                    <div class="fo-sub">${facialEscapar(usuario.nome || '')}</div>
+                </div>
+            </div>
+
+            <div class="fo-corpo" id="fo-corpo">
+                <p class="fo-texto">
+                    Para usar o LWN Control no celular, cadastre o seu rosto uma única vez.
+                    Depois disso você entra <strong>só olhando para a câmera</strong>, em qualquer
+                    aparelho da empresa.
+                </p>
+                <video id="fo-video" playsinline muted></video>
+                <div class="fo-barra"><div class="fo-barra-cheia" id="fo-barra"></div></div>
+                <div class="fo-passo" id="fo-passo">Toque em começar quando estiver pronto.</div>
+                <div class="fo-pontinhos" id="fo-pontinhos"></div>
+            </div>
+
+            <div class="fo-rodape">
+                <button type="button" class="fo-botao" id="fo-comecar">Começar</button>
+                <div class="fo-aviso">Esta tela só sai depois do cadastro.</div>
+            </div>
+        </div>`;
+    document.body.appendChild(tela);
+    document.body.style.overflow = 'hidden';
+
+    document.getElementById('fo-comecar').onclick = facialCadastrarObrigatorio;
+}
+
+function foPasso(t) { const e = document.getElementById('fo-passo'); if (e) e.textContent = t; }
+function foBarra(f) {
+    const e = document.getElementById('fo-barra');
+    if (e) e.style.width = Math.round(Math.max(0, Math.min(1, f || 0)) * 100) + '%';
+}
+function foPontinhos(feitos, total) {
+    const box = document.getElementById('fo-pontinhos');
+    if (!box) return;
+    box.innerHTML = Array.from({ length: total }, (_, i) =>
+        `<span class="fo-pontinho${i < feitos ? ' feito' : ''}"></span>`).join('');
+}
+
+async function facialCadastrarObrigatorio() {
+    const u = facialUsuarioLogado();
+    const btn = document.getElementById('fo-comecar');
+    if (btn) { btn.disabled = true; btn.textContent = 'Preparando...'; }
+    foPontinhos(0, FACIAL_AMOSTRAS);
+    foBarra(0);
+
+    try {
+        await window.LWNFace.preparar(foPasso);
+
+        const video = document.getElementById('fo-video');
+        if (!video) return;
+        video.classList.add('ligado');
+        facialStream = await window.LWNFace.abrirCamera(video);
+
+        const descritores = await window.LWNFace.ler(video, {
+            amostras: FACIAL_AMOSTRAS,
+            exigirMovimento: true,
+            aoProgredir: (texto, dados) => {
+                foPasso(texto);
+                if (dados && dados.progresso !== undefined) foBarra(dados.progresso);
+                if (dados && dados.coletados !== undefined) foPontinhos(dados.coletados, FACIAL_AMOSTRAS);
+            }
+        });
+
+        window.LWNFace.fecharCamera(facialStream);
+        facialStream = null;
+        foPasso('Guardando...');
+
+        const resp = await fetch(`${API_URL}/rosto/cadastrar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usuario_id: u.id, descritores })
+        });
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+
+        // Liberado.
+        await facialCarregarCadastrados();
+        document.getElementById('facial-obrigatorio')?.remove();
+        document.body.style.overflow = '';
+        if (typeof showToast === 'function') {
+            showToast('Rosto cadastrado! Agora você entra só olhando para a câmera.', 'success');
+        }
+
+    } catch (err) {
+        console.error('Cadastro facial obrigatório:', err);
+        window.LWNFace.fecharCamera(facialStream);
+        facialStream = null;
+        document.getElementById('fo-video')?.classList.remove('ligado');
+        foPasso(err.message || 'Não foi possível cadastrar. Tente de novo.');
+        foBarra(0);
+        if (btn) { btn.disabled = false; btn.textContent = 'Tentar de novo'; }
+    }
+}
+window.facialCadastrarObrigatorio = facialCadastrarObrigatorio;
+
 // ============================================================
 // A COLUNA PRECISA SE CARREGAR SOZINHA
 //
@@ -521,6 +767,9 @@ window.facialAtualizarTabela = facialAtualizarTabela;
             renderUsuariosTable('usuarios-tbody');
             renderUsuariosTable('config-usuarios-tbody');
         }
+
+        // No celular, quem ainda não tem rosto não passa daqui.
+        try { await facialExigirCadastro(); } catch (e) { console.warn(e); }
     };
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => setTimeout(tentar, 400));
